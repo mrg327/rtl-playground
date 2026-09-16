@@ -107,3 +107,12 @@ tests/                 pytest suite for the host
 legacy/                the single-file prototype this project replaces
 .github/workflows/     build, test, and publish
 ```
+
+## AI disclosure
+
+This project was built in collaboration with Claude (Anthropic) through
+Claude Code. Claude drafted much of the code, tests, packaging, and
+documentation, including this README, from the author's design brief and
+feedback; the author directed the work, reviewed the results, and is
+responsible for the project. The design and its educational goals are the
+author's.

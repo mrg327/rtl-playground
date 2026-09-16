@@ -1,0 +1,185 @@
+{
+ "version": 2,
+ "name": "Pattern detector (datapath only)",
+ "top": "top",
+ "options": {
+  "resetStyle": "sync_high",
+  "xUntilReset": false,
+  "clockName": "clk",
+  "resetName": "rst"
+ },
+ "modules": {
+  "top": {
+   "source": "schematic",
+   "ports": [],
+   "blocks": [
+    {
+     "id": "din",
+     "type": "seq",
+     "params": {
+      "width": 1,
+      "values": "0 1 0 1 1 1 0 1 1 0",
+      "repeat": false
+     },
+     "x": 40,
+     "y": 110,
+     "trace": true,
+     "label": "din"
+    },
+    {
+     "id": "sr",
+     "type": "shreg",
+     "params": {
+      "len": 4,
+      "en": false
+     },
+     "x": 240,
+     "y": 100,
+     "trace": true
+    },
+    {
+     "id": "k",
+     "type": "const",
+     "params": {
+      "width": 4,
+      "value": "4'b1011"
+     },
+     "x": 240,
+     "y": 210,
+     "trace": false,
+     "label": "pattern 1011"
+    },
+    {
+     "id": "cmp1",
+     "type": "cmp",
+     "params": {
+      "width": 4,
+      "op": "eq",
+      "signed": false
+     },
+     "x": 420,
+     "y": 130,
+     "trace": false
+    },
+    {
+     "id": "found",
+     "type": "out",
+     "params": {
+      "width": 1
+     },
+     "x": 580,
+     "y": 141,
+     "trace": true,
+     "label": "found"
+    }
+   ],
+   "wires": [
+    {
+     "id": "w1",
+     "from": {
+      "b": "din",
+      "p": "y"
+     },
+     "to": {
+      "b": "sr",
+      "p": "d"
+     }
+    },
+    {
+     "id": "w2",
+     "from": {
+      "b": "sr",
+      "p": "q"
+     },
+     "to": {
+      "b": "cmp1",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w3",
+     "from": {
+      "b": "k",
+      "p": "y"
+     },
+     "to": {
+      "b": "cmp1",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w4",
+     "from": {
+      "b": "cmp1",
+      "p": "y"
+     },
+     "to": {
+      "b": "found",
+      "p": "a"
+     }
+    }
+   ],
+   "notes": [
+    {
+     "id": "note1",
+     "x": 40,
+     "y": 20,
+     "w": 640,
+     "h": 50,
+     "text": "Detects the bit pattern 1011 in a serial stream using a shift register and a comparator, with no state machine. found goes high in the cycle after the last bit arrives. Which cycle does that correspond to in the waveform?"
+    }
+   ],
+   "locked": []
+  }
+ },
+ "tests": [
+  {
+   "name": "Stream 0101110110",
+   "module": "top",
+   "columns": [
+    "found"
+   ],
+   "rows": [
+    [
+     "0"
+    ],
+    [
+     "0"
+    ],
+    [
+     "0"
+    ],
+    [
+     "0"
+    ],
+    [
+     "0"
+    ],
+    [
+     "1"
+    ],
+    [
+     "0"
+    ],
+    [
+     "0"
+    ],
+    [
+     "0"
+    ],
+    [
+     "1"
+    ],
+    [
+     "0"
+    ]
+   ]
+  }
+ ],
+ "views": {
+  "wave": {
+   "signals": [],
+   "radix": {}
+  }
+ }
+}

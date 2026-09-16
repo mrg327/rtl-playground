@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RTL block playground</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#f4f7f6;--grid:#d9e1de;--ink:#1d3557;--ink2:#5b6b7c;--wire:#7d8a96;--hi:#d98e04;--sel:#2b7de9;--panel:#fff;--line:#d3dbd8}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font-family:"IBM Plex Sans",system-ui,sans-serif;color:var(--ink);background:var(--paper)}
+#app{display:grid;grid-template-columns:240px 1fr;grid-template-rows:52px 1fr;height:100%}
+header{grid-column:1/3;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:16px;font-weight:600;margin:0 auto 0 0}
+#clk{font-family:"IBM Plex Mono",monospace;font-size:13px;color:var(--ink2);margin-right:6px}
+button{font:inherit;font-size:13px;padding:6px 12px;border:1px solid var(--ink);background:#fff;color:var(--ink);border-radius:4px;cursor:pointer}
+button.primary{background:var(--ink);color:#fff}
+button:hover{background:#eef2f1}button.primary:hover{background:#274a75}
+button:focus-visible{outline:2px solid var(--sel);outline-offset:2px}
+aside{border-right:1px solid var(--line);background:var(--panel);overflow:auto;padding:14px;display:flex;flex-direction:column;gap:18px}
+aside h2{font-size:13px;font-weight:600;margin:0 0 6px}
+.pal{display:flex;flex-direction:column;gap:4px}
+.pal button{text-align:left;border-color:var(--line);display:flex;justify-content:space-between;align-items:center}
+.pal button small{color:var(--ink2);font-family:"IBM Plex Mono",monospace;font-size:11px}
+.pal .grp{font-size:11px;color:var(--ink2);margin:8px 0 2px}
+#insp label{display:block;font-size:12px;color:var(--ink2);margin:8px 0 3px}
+#insp label.chk{display:flex;gap:6px;align-items:center;color:var(--ink);font-size:13px;margin-top:10px}
+#insp input[type=text],#insp input[type=number]{font:inherit;width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:4px}
+#insp p{font-size:13px;color:var(--ink2);margin:6px 0 0;line-height:1.45}
+.mono{font-family:"IBM Plex Mono",monospace}
+main{display:flex;flex-direction:column;overflow:hidden}
+#cv{position:relative;flex:1;overflow:hidden}
+#sv{width:100%;height:100%;display:block;touch-action:none;cursor:grab;user-select:none}
+#sv.dragging{cursor:grabbing}
+.blk .body{fill:#fff;stroke:var(--ink);stroke-width:1.6}
+.blk.sel .body{stroke:var(--sel);stroke-width:2.4}
+.blk text{font-size:12px;fill:var(--ink);pointer-events:none}
+.blk text.p{font-size:11px;fill:var(--ink2)}
+.blk text.v{font-family:"IBM Plex Mono",monospace;font-weight:500;font-size:13px}
+.blk text.s{font-size:11px;fill:var(--ink2);font-family:"IBM Plex Mono",monospace}
+.blk text.sym{font-size:22px;font-weight:500}
+.blk text.l{font-size:10px;fill:var(--ink2)}
+.blk .lead,.blk .clkmark,.blk .tick{fill:none;stroke:var(--ink);stroke-width:1.4}
+.blk text.tk{font-size:9px;fill:var(--ink2);font-family:"IBM Plex Mono",monospace}
+.port{fill:#fff;stroke:var(--ink);stroke-width:1.5;cursor:crosshair}
+.port.hi{fill:var(--hi);stroke:var(--hi)}
+.wire{fill:none;stroke:var(--wire);stroke-width:2;pointer-events:none}
+.wire.hi{stroke:var(--hi)}.wire.bus{stroke-width:3}.wire.sel{stroke:var(--sel)}
+.wire-hit{fill:none;stroke:transparent;stroke-width:14;cursor:pointer}
+.tmp{fill:none;stroke:var(--sel);stroke-width:2;stroke-dasharray:6 4;pointer-events:none}
+.wv{font-family:"IBM Plex Mono",monospace;font-size:11px;fill:var(--ink2);pointer-events:none}
+#hint{position:absolute;left:12px;bottom:12px;font-size:12px;color:var(--ink2);background:rgba(255,255,255,.9);padding:6px 10px;border-radius:4px;max-width:560px;line-height:1.4}
+#empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;color:var(--ink2);font-size:14px;text-align:center;line-height:1.5}
+#tim{border-top:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;height:240px}
+#tim.hidden{height:auto}#tim.hidden #timwrap{display:none}
+#tim .bar{display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--line);font-size:13px;font-weight:600}
+#tim .bar span{margin-right:auto}
+#tim .bar button{padding:3px 9px;font-size:12px;border-color:var(--line)}
+#timwrap{flex:1;overflow:auto}
+#tsv{display:block}
+#tsv text{font-size:11px;fill:var(--ink)}
+#tsv text.name{font-weight:500}
+#tsv text.cyc{fill:var(--ink2);font-family:"IBM Plex Mono",monospace}
+#tsv text.bv{font-family:"IBM Plex Mono",monospace;fill:var(--ink)}
+#tsv .sig{fill:none;stroke:var(--ink);stroke-width:1.6}
+#tsv .sig.clk{stroke:var(--ink2)}
+#tsv .grid{stroke:var(--grid);stroke-width:1}
+#tsv .now{fill:#fff4dc}
+#timmsg{padding:14px;font-size:13px;color:var(--ink2)}
+@media (max-width:760px){#app{grid-template-columns:1fr;grid-template-rows:auto auto 1fr}header{grid-column:1;flex-wrap:wrap;height:auto;padding:8px 12px}aside{border-right:0;border-bottom:1px solid var(--line);max-height:34vh}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>RTL block playground</h1>
+    <span id="clk">cycle 0</span>
+    <button class="primary" id="step">Clock ↑</button>
+    <button id="run">Run</button>
+    <button id="rst">Power-on reset</button>
+    <button id="del">Delete</button>
+    <button id="exp">Save JSON</button>
+    <button id="imp">Load JSON</button>
+    <input type="file" id="file" hidden accept=".json,application/json">
+  </header>
+  <aside>
+    <div><h2>Blocks</h2><div class="pal" id="pal"></div></div>
+    <div><h2>Selected</h2><div id="insp"></div></div>
+  </aside>
+  <main>
+    <div id="cv">
+      <svg id="sv" xmlns="http://www.w3.org/2000/svg">
+        <g id="world">
+          <defs><pattern id="g" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="#d9e1de" stroke-width="1"/></pattern></defs>
+          <rect x="-100000" y="-100000" width="200000" height="200000" fill="url(#g)"/>
+          <g id="layer"></g>
+        </g>
+      </svg>
+      <div id="empty">The canvas is empty.<br>Add a block from the list on the left to begin.</div>
+      <div id="hint">Drag from an output pin to an input pin to wire. Click a 1-bit input to toggle it. Drag empty space to pan, scroll to zoom. Delete or Backspace removes the selection. Power-on reset zeroes the flip-flops in the simulator only; your design still has to handle Start on its own.</div>
+    </div>
+    <section id="tim">
+      <div class="bar"><span>Timing diagram</span><button id="timclr">Clear history</button><button id="timtog">Hide</button></div>
+      <div id="timwrap"><div id="timmsg"></div><svg id="tsv" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    </section>
+  </main>
+</div>
+<script>
+const L=10;
+const R=(w,h)=>`<rect class="body" x="0" y="0" width="${w}" height="${h}" rx="2"/>`;
+const pill=(w,h)=>`<rect class="body" x="0" y="0" width="${w}" height="${h}" rx="${h/2}"/>`;
+const flagIn=(w,h)=>`<path class="body" d="M0,0 H${w-10} L${w},${h/2} L${w-10},${h} H0 z"/>`;
+const flagOut=(w,h)=>`<path class="body" d="M10,0 H${w} V${h} H10 L0,${h/2} z"/>`;
+const seqVal=s=>{const n=s.list.length;if(!n)return 0;if(s.idx<n)return s.list[s.idx];return s.rep?s.list[s.idx%n]:0};
+
+const T={
+  in1:{name:'Input, 1-bit',grp:'Signals',kind:'in',ins:[],outs:[['',1]],w:64,h:30,body:flagIn,po:[{x:74,y:15,s:'r'}],st:()=>({val:0}),fn:(i,s)=>[s.val&1],tr:true},
+  in4:{name:'Input, 4-bit',grp:'Signals',kind:'in',ins:[],outs:[['',4]],w:64,h:30,body:flagIn,po:[{x:74,y:15,s:'r'}],st:()=>({val:0}),fn:(i,s)=>[s.val&15],tr:true},
+  seq1:{name:'Sequence, 1-bit',grp:'Signals',kind:'seq',ins:[],outs:[['',1]],w:84,h:40,body:flagIn,po:[{x:94,y:20,s:'r'}],st:()=>({list:[0,1,1,0],idx:0,rep:false}),fn:(i,s)=>[seqVal(s)&1],tr:true},
+  seq4:{name:'Sequence, 4-bit',grp:'Signals',kind:'seq',ins:[],outs:[['',4]],w:84,h:40,body:flagIn,po:[{x:94,y:20,s:'r'}],st:()=>({list:[1,2,3,4],idx:0,rep:false}),fn:(i,s)=>[seqVal(s)&15],tr:true},
+  c4:{name:'Constant, 4-bit',grp:'Signals',kind:'const',ins:[],outs:[['',4]],w:64,h:28,body:pill,po:[{x:74,y:14,s:'r'}],st:()=>({val:0}),fn:(i,s)=>[s.val&15]},
+  c8:{name:'Constant, 8-bit',grp:'Signals',kind:'const',ins:[],outs:[['',8]],w:64,h:28,body:pill,po:[{x:74,y:14,s:'r'}],st:()=>({val:0}),fn:(i,s)=>[s.val&255]},
+  out1:{name:'Output, 1-bit',grp:'Signals',kind:'out',ins:[['',1]],outs:[],w:64,h:30,body:flagOut,pi:[{x:-10,y:15,s:'l'}],fn:()=>[],tr:true},
+  out8:{name:'Output, 8-bit',grp:'Signals',kind:'out',ins:[['',8]],outs:[],w:64,h:30,body:flagOut,pi:[{x:-10,y:15,s:'l'}],fn:()=>[],tr:true},
+  dff:{name:'D flip-flop',grp:'Sequential',kind:'ff',ins:[['D',1]],outs:[['Q',1]],w:64,h:56,body:R,pi:[{x:-10,y:20,s:'l'}],po:[{x:74,y:20,s:'r'}],seq:true,mask:1,st:()=>({q:0}),fn:(i,s)=>[s.q&1],tr:true},
+  reg:{name:'D register, 8-bit',grp:'Sequential',kind:'ff',ins:[['D',8]],outs:[['Q',8]],w:72,h:56,body:R,pi:[{x:-10,y:20,s:'l'}],po:[{x:82,y:20,s:'r'}],seq:true,mask:255,st:()=>({q:0}),fn:(i,s)=>[s.q&255],tr:true},
+  add:{name:'Adder, 8-bit',grp:'Combinational',ins:[['A',8],['B',8]],outs:[['S',8],['Co',1]],w:60,h:64,body:R,pi:[{x:-10,y:18,s:'l'},{x:-10,y:46,s:'l'}],po:[{x:70,y:24,s:'r'},{x:70,y:48,s:'r'}],sym:'+',fn:i=>{const r=(i[0]&255)+(i[1]&255);return[r&255,(r>>8)&1]}},
+  mux:{name:'Mux 2:1',grp:'Combinational',ins:[['0',8],['1',8],['S',1]],outs:[['',8]],w:44,h:72,body:(w,h)=>`<path class="body" d="M0,0 L${w},14 L${w},${h-14} L0,${h} z"/>`,pi:[{x:-10,y:20,s:'l'},{x:-10,y:52,s:'l'},{x:22,y:82,s:'b',edge:65,lx:22,ly:58}],po:[{x:54,y:36,s:'r'}],fn:i=>[(i[2]&1)?i[1]:i[0]]},
+  eq:{name:'Equality compare, 4-bit',grp:'Combinational',ins:[['A',4],['B',4]],outs:[['',1]],w:56,h:52,body:R,pi:[{x:-10,y:16,s:'l'},{x:-10,y:36,s:'l'}],po:[{x:66,y:26,s:'r'}],sym:'=',fn:i=>[((i[0]&15)===(i[1]&15))?1:0]},
+  ext:{name:'Zero-extend 1→8',grp:'Combinational',ins:[['',1]],outs:[['',8]],w:60,h:36,body:R,pi:[{x:-10,y:18,s:'l'}],po:[{x:70,y:18,s:'r'}],sym:'{0,x}',symSize:13,fn:i=>[i[0]&1]},
+  and:{name:'AND',grp:'Gates',ins:[['',1],['',1]],outs:[['',1]],w:52,h:44,body:()=>`<path class="body" d="M0,0 H30 A22,22 0 0 1 30,44 H0 z"/>`,pi:[{x:-10,y:12,s:'l'},{x:-10,y:32,s:'l'}],po:[{x:62,y:22,s:'r'}],fn:i=>[i[0]&i[1]&1]},
+  or:{name:'OR',grp:'Gates',ins:[['',1],['',1]],outs:[['',1]],w:56,h:44,body:()=>`<path class="body" d="M0,0 Q14,22 0,44 Q32,44 56,22 Q32,0 0,0 z"/>`,pi:[{x:-10,y:12,s:'l',edge:6},{x:-10,y:32,s:'l',edge:6}],po:[{x:66,y:22,s:'r'}],fn:i=>[(i[0]|i[1])&1]},
+  not:{name:'NOT',grp:'Gates',ins:[['',1]],outs:[['',1]],w:44,h:36,body:()=>`<path class="body" d="M0,0 L34,18 L0,36 z"/><circle class="body" cx="39" cy="18" r="5"/>`,pi:[{x:-10,y:18,s:'l'}],po:[{x:54,y:18,s:'r'}],fn:i=>[(~i[0])&1]},
+};
+const SHORT={in1:'in',in4:'in',seq1:'seq',seq4:'seq',c4:'k',c8:'k',out1:'out',out8:'out',dff:'ff',reg:'reg',add:'add',mux:'mux',eq:'eq',ext:'ext',and:'and',or:'or',not:'not'};
+
+let blocks=[],wires=[],hist=[],sel=null,nid=1,wid=1,cycle=0,view={x:60,y:60,k:1},vals={},timer=null,drag=null;
+const $=id=>document.getElementById(id);
+const sv=$('sv'),layer=$('layer'),world=$('world');
+const byId=id=>blocks.find(b=>b.id===id);
+const pin=(b,i)=>{const p=T[b.t].pi[i];return{x:b.x+p.x,y:b.y+p.y}};
+const pout=(b,i)=>{const p=T[b.t].po[i];return{x:b.x+p.x,y:b.y+p.y}};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nameOf=b=>b.l||`${SHORT[b.t]}${b.id}`;
+const sigW=b=>{const d=T[b.t];return (d.outs[0]||d.ins[0]||[,1])[1]};
+
+// palette
+(()=>{
+  const pal=$('pal');let g='';
+  for(const [k,d] of Object.entries(T)){
+    if(d.grp!==g){g=d.grp;const s=document.createElement('div');s.className='grp';s.textContent=g;pal.appendChild(s)}
+    const btn=document.createElement('button');
+    const w=(d.outs[0]||d.ins[0]||[,1])[1];
+    btn.innerHTML=`<span>${d.name}</span><small>${d.seq?'clk':w+'b'}</small>`;
+    btn.onclick=()=>addBlock(k);pal.appendChild(btn);
+  }
+})();
+
+function addBlock(t){
+  const r=sv.getBoundingClientRect();
+  const cx=(r.width/2-view.x)/view.k,cy=(r.height/2-view.y)/view.k,n=blocks.length%6;
+  const b={id:nid++,t,x:Math.round((cx-T[t].w/2+n*24)/10)*10,y:Math.round((cy-T[t].h/2+n*24)/10)*10,l:'',tr:!!T[t].tr,s:T[t].st?T[t].st():{}};
+  blocks.push(b);sel={b:b.id};render();inspector();
+}
+
+// simulation
+function evaluate(){
+  vals={};
+  const src={};wires.forEach(w=>src[`${w.to}:${w.ti}`]=`${w.from}:${w.fi}`);
+  const inVal=(b,i)=>{const s=src[`${b.id}:${i}`];return s?(vals[s]||0):0};
+  for(let it=0;it<24;it++){
+    let ch=false;
+    for(const b of blocks){const d=T[b.t];const o=d.fn(d.ins.map((_,i)=>inVal(b,i)),b.s);
+      o.forEach((v,i)=>{const k=`${b.id}:${i}`;if(vals[k]!==v){vals[k]=v;ch=true}})}
+    if(!ch)break;
+  }
+  return inVal;
+}
+const sigVal=(b,inVal)=>T[b.t].kind==='out'?inVal(b,0):(vals[`${b.id}:0`]||0);
+function sample(inVal){const v={};blocks.forEach(b=>{if(b.tr)v[b.id]=sigVal(b,inVal)});return{c:cycle,v}}
+function step(){
+  const inVal=evaluate();
+  hist.push(sample(inVal));if(hist.length>96)hist.shift();
+  const nx=blocks.filter(b=>T[b.t].seq).map(b=>[b,inVal(b,0)&T[b.t].mask]);
+  nx.forEach(([b,v])=>b.s.q=v);
+  blocks.forEach(b=>{if(T[b.t].kind==='seq')b.s.idx++});
+  cycle++;render();inspector();
+}
+function powerOn(){blocks.forEach(b=>{if(T[b.t].seq)b.s.q=0;if(T[b.t].kind==='seq')b.s.idx=0});cycle=0;hist=[];render();inspector()}
+
+// schematic render
+function render(){
+  const inVal=evaluate();
+  let h='';
+  for(const w of wires){
+    const a=byId(w.from),c=byId(w.to);if(!a||!c)continue;
+    const p=pout(a,w.fi),q=pin(c,w.ti);const v=vals[`${w.from}:${w.fi}`]||0;
+    const bus=T[a.t].outs[w.fi][1]>1;
+    const qs=T[c.t].pi[w.ti].s==='b';
+    const d=qs?`M${p.x} ${p.y} C${p.x+60} ${p.y} ${q.x} ${q.y+60} ${q.x} ${q.y}`:`M${p.x} ${p.y} C${p.x+60} ${p.y} ${q.x-60} ${q.y} ${q.x} ${q.y}`;
+    h+=`<path class="wire-hit" d="${d}" data-w="${w.id}"/><path class="wire${bus?' bus':''}${v?' hi':''}${sel&&sel.w===w.id?' sel':''}" d="${d}"/>`;
+    if(bus)h+=`<text class="wv" x="${(p.x+q.x)/2}" y="${(p.y+q.y)/2-6}" text-anchor="middle">${v}</text>`;
+  }
+  if(drag&&drag.type==='wire'){const p=pout(byId(drag.b),drag.i);h+=`<path class="tmp" d="M${p.x} ${p.y} L${drag.x} ${drag.y}"/>`}
+  for(const b of blocks){
+    const d=T[b.t];
+    h+=`<g class="blk${sel&&sel.b===b.id?' sel':''}" data-b="${b.id}" transform="translate(${b.x} ${b.y})">`;
+    h+=d.body(d.w,d.h);
+    if(d.seq)h+=`<path class="clkmark" d="M0,${d.h-18} l8 6 l-8 6"/>`;
+    const drawPin=(p,name,width,val,attr)=>{
+      let ex,ey;
+      if(p.s==='l'){ex=p.edge??0;ey=p.y}else if(p.s==='r'){ex=p.edge??d.w;ey=p.y}else{ex=p.x;ey=p.edge??d.h}
+      h+=`<line class="lead" x1="${p.x}" y1="${p.y}" x2="${ex}" y2="${ey}"/>`;
+      if(width>1){const mx=(p.x+ex)/2,my=(p.y+ey)/2;
+        if(p.s==='b')h+=`<line class="tick" x1="${mx-4}" y1="${my+3}" x2="${mx+4}" y2="${my-3}"/><text class="tk" x="${mx+6}" y="${my+3}">${width}</text>`;
+        else h+=`<line class="tick" x1="${mx-3}" y1="${my+4}" x2="${mx+3}" y2="${my-4}"/><text class="tk" x="${mx}" y="${my-6}" text-anchor="middle">${width}</text>`}
+      h+=`<circle class="port${(val&1)&&width===1?' hi':''}" cx="${p.x}" cy="${p.y}" r="5" data-b="${b.id}" ${attr}/>`;
+      if(name){const lx=p.lx??(p.s==='l'?ex+5:ex-5),ly=p.ly??p.y+4;h+=`<text class="p" x="${lx}" y="${ly}" text-anchor="${p.lx!==undefined?'middle':p.s==='l'?'start':'end'}">${name}</text>`}
+    };
+    d.ins.forEach(([n,w],i)=>drawPin(d.pi[i],n,w,inVal(b,i),`data-i="${i}"`));
+    d.outs.forEach(([n,w],i)=>drawPin(d.po[i],n,w,vals[`${b.id}:${i}`]||0,`data-o="${i}"`));
+    const cx=d.w/2,cy=d.h/2;
+    if(d.kind==='in')h+=`<text class="v" x="${cx-3}" y="${cy+4}" text-anchor="middle">${b.s.val}</text>`;
+    else if(d.kind==='const')h+=`<text class="v" x="${cx}" y="${cy+4}" text-anchor="middle">${d.outs[0][1]}'d${b.s.val}</text>`;
+    else if(d.kind==='out')h+=`<text class="v" x="${cx+4}" y="${cy+4}" text-anchor="middle">${inVal(b,0)}</text>`;
+    else if(d.kind==='seq'){const n=b.s.list.length,pos=n?(b.s.rep?b.s.idx%n:Math.min(b.s.idx,n))+1:0;
+      h+=`<text class="v" x="${cx-4}" y="${cy-1}" text-anchor="middle">${seqVal(b.s)}</text><text class="s" x="${cx-4}" y="${cy+13}" text-anchor="middle">${pos>n?'end':pos+'/'+n}</text>`}
+    else if(d.kind==='ff')h+=`<text class="v" x="${cx}" y="${cy+10}" text-anchor="middle">${b.s.q}</text>`;
+    else if(d.sym)h+=`<text class="sym" style="font-size:${d.symSize||22}px" x="${cx}" y="${cy+(d.symSize?4:8)}" text-anchor="middle">${esc(d.sym)}</text>`;
+    if(b.l)h+=`<text class="l" x="${cx}" y="${d.h+14+(d.pi.some(p=>p.s==='b')?14:0)}" text-anchor="middle">${esc(b.l)}</text>`;
+    h+=`</g>`;
+  }
+  layer.innerHTML=h;
+  world.setAttribute('transform',`translate(${view.x} ${view.y}) scale(${view.k})`);
+  $('clk').textContent=`cycle ${cycle}`;
+  $('empty').style.display=blocks.length?'none':'flex';
+  renderTiming(inVal);
+}
+
+// timing diagram
+function renderTiming(inVal){
+  const rows=blocks.filter(b=>b.tr).sort((a,b)=>a.id-b.id);
+  const tsv=$('tsv'),msg=$('timmsg');
+  if(!rows.length){tsv.innerHTML='';msg.textContent='Nothing is being traced. Select a block and tick "Show in timing diagram". Inputs, sequences, outputs and flip-flops are traced by default.';return}
+  msg.textContent='';
+  const entries=[...hist,sample(inVal)];
+  const LW=118,CW=40,RH=32,top=18;
+  const width=LW+CW*entries.length+16,height=top+RH*(rows.length+1)+8;
+  let h=`<rect class="now" x="${LW+CW*(entries.length-1)}" y="0" width="${CW}" height="${height}"/>`;
+  entries.forEach((e,i)=>{const x=LW+i*CW;h+=`<line class="grid" x1="${x}" y1="${top-4}" x2="${x}" y2="${height}"/><text class="cyc" x="${x+CW/2}" y="${top-6}" text-anchor="middle">${e.c}</text>`});
+  // clock row
+  let y0=top,hi=y0+6,lo=y0+RH-8;
+  h+=`<text class="name" x="8" y="${y0+RH/2+4}">clock</text>`;
+  let p='';
+  entries.forEach((e,i)=>{const x=LW+i*CW;
+    if(e.c===0)p+=`${i?'L':'M'}${x} ${lo} L${x+CW} ${lo} `;
+    else p+=`${i?'L':'M'}${x} ${lo} L${x} ${hi} L${x+CW/2} ${hi} L${x+CW/2} ${lo} L${x+CW} ${lo} `});
+  h+=`<path class="sig clk" d="${p}"/>`;
+  rows.forEach((b,r)=>{
+    y0=top+RH*(r+1);hi=y0+6;lo=y0+RH-8;const mid=(hi+lo)/2;
+    h+=`<line class="grid" x1="0" y1="${y0}" x2="${width}" y2="${y0}"/><text class="name" x="8" y="${mid+4}">${esc(nameOf(b)).slice(0,16)}</text>`;
+    const w=sigW(b);
+    if(w===1){let p='';entries.forEach((e,i)=>{const x=LW+i*CW,v=(e.v[b.id]??0)&1,y=v?hi:lo;
+      if(i===0)p+=`M${x} ${y} `;else{const pv=(entries[i-1].v[b.id]??0)&1;if(pv!==v)p+=`L${x} ${y} `}p+=`L${x+CW} ${y} `});
+      h+=`<path class="sig" d="${p}"/>`}
+    else{let pt='',pb='';
+      entries.forEach((e,i)=>{const x=LW+i*CW,v=e.v[b.id]??0,pv=i?entries[i-1].v[b.id]??0:null,ch=i===0||pv!==v;
+        const xs=ch?x+3:x;
+        if(i===0){pt+=`M${x} ${mid} L${xs} ${hi} `;pb+=`M${x} ${mid} L${xs} ${lo} `}
+        else if(ch){pt+=`L${x-3} ${hi} L${xs} ${lo} `;pb+=`L${x-3} ${lo} L${xs} ${hi} `;const t=pt;pt=pb;pb=t}
+        pt+=`L${x+CW-3} ${hi} `;pb+=`L${x+CW-3} ${lo} `;
+        if(i===entries.length-1){pt+=`L${x+CW} ${hi}`;pb+=`L${x+CW} ${lo}`}
+        h+=`<text class="bv" x="${x+CW/2}" y="${mid+4}" text-anchor="middle">${v}</text>`});
+      h+=`<path class="sig" d="${pt}"/><path class="sig" d="${pb}"/>`}
+  });
+  tsv.setAttribute('width',width);tsv.setAttribute('height',height);tsv.innerHTML=h;
+  const wrap=$('timwrap');wrap.scrollLeft=wrap.scrollWidth;
+}
+
+// inspector
+function inspector(){
+  const el=$('insp');
+  if(!sel){el.innerHTML='<p>Nothing selected.</p>';return}
+  if(sel.w){el.innerHTML='<p>Wire selected. Press Delete to remove it, or drag its input end to move it.</p>';return}
+  const b=byId(sel.b);if(!b){sel=null;return inspector()}
+  const d=T[b.t];
+  let h=`<p><strong>${d.name}</strong></p><label>Label</label><input type="text" id="lbl" value="${esc(b.l)}" placeholder="e.g. Start">`;
+  if(d.kind==='in'||d.kind==='const'){const w=d.outs[0][1];
+    h+=`<label>Value (0–${(1<<w)-1})</label><input id="val" type="number" min="0" max="${(1<<w)-1}" value="${b.s.val}">`;
+    h+=`<p class="mono">bin ${b.s.val.toString(2).padStart(w,'0')} · hex ${b.s.val.toString(16).toUpperCase()}</p>`}
+  if(d.kind==='seq'){const w=d.outs[0][1];
+    h+=`<label>Values, one per clock cycle (comma or space separated${w===1?', or a string of 0s and 1s':''})</label><input type="text" id="seq" value="${b.s.list.join(w===1?'':', ')}">`;
+    h+=`<label class="chk"><input type="checkbox" id="rep" ${b.s.rep?'checked':''}> Repeat when the sequence ends</label>`;
+    h+=`<p>Position ${Math.min(b.s.idx,b.s.list.length)} of ${b.s.list.length}. The sequence advances on every clock edge; after the end it outputs 0 unless repeat is on. Power-on reset restarts it.</p>`}
+  if(d.seq)h+=`<p>Clocked by the global clock. Q updates on "Clock ↑" from whatever D holds just before the edge.</p><p class="mono">Q = ${b.s.q}</p>`;
+  if(b.t==='add')h+=`<p>S = (A + B) mod 256. Co is the carry out of bit 7.</p>`;
+  if(b.t==='mux')h+=`<p>Output is input 1 when S = 1, otherwise input 0.</p>`;
+  if(b.t==='ext')h+=`<p>Places the 1-bit input in bit 0 and zeros in bits 7:1.</p>`;
+  if(d.outs.length||d.ins.length)h+=`<label class="chk"><input type="checkbox" id="tr" ${b.tr?'checked':''}> Show in timing diagram</label>`;
+  el.innerHTML=h;
+  $('lbl').oninput=e=>{b.l=e.target.value;render()};
+  const v=$('val');if(v)v.oninput=e=>{const w=d.outs[0][1];b.s.val=Math.max(0,Math.min((1<<w)-1,+e.target.value||0));render()};
+  const s=$('seq');if(s)s.oninput=e=>{const w=d.outs[0][1],max=(1<<w)-1,t=e.target.value.trim();
+    let toks=(w===1&&/^[01\s]+$/.test(t))?t.replace(/\s/g,'').split(''):t.split(/[\s,;]+/).filter(Boolean);
+    b.s.list=toks.map(x=>Math.max(0,Math.min(max,parseInt(x,10)||0)));render()};
+  const rp=$('rep');if(rp)rp.onchange=e=>{b.s.rep=e.target.checked;render()};
+  const tr=$('tr');if(tr)tr.onchange=e=>{b.tr=e.target.checked;render()};
+}
+
+// interaction
+const toWorld=e=>{const r=sv.getBoundingClientRect();return{x:(e.clientX-r.left-view.x)/view.k,y:(e.clientY-r.top-view.y)/view.k}};
+sv.addEventListener('pointerdown',e=>{
+  if(e.button!==0)return;
+  const w=toWorld(e);
+  const port=e.target.closest('.port'),blk=e.target.closest('.blk'),wire=e.target.closest('[data-w]');
+  if(port&&port.dataset.o!==undefined){drag={type:'wire',b:+port.dataset.b,i:+port.dataset.o,x:w.x,y:w.y}}
+  else if(port&&port.dataset.i!==undefined){const b=+port.dataset.b,i=+port.dataset.i;const ex=wires.find(x=>x.to===b&&x.ti===i);
+    if(ex){wires=wires.filter(x=>x!==ex);drag={type:'wire',b:ex.from,i:ex.fi,x:w.x,y:w.y}}}
+  else if(blk){const b=byId(+blk.dataset.b);sel={b:b.id};drag={type:'block',b,ox:w.x-b.x,oy:w.y-b.y,moved:false};blocks.splice(blocks.indexOf(b),1);blocks.push(b);inspector()}
+  else if(wire){sel={w:+wire.dataset.w};inspector()}
+  else{sel=null;drag={type:'pan',sx:e.clientX,sy:e.clientY,vx:view.x,vy:view.y};sv.classList.add('dragging');inspector()}
+  sv.setPointerCapture(e.pointerId);render();
+});
+sv.addEventListener('pointermove',e=>{
+  if(!drag)return;const w=toWorld(e);
+  if(drag.type==='block'){const nx=Math.round((w.x-drag.ox)/10)*10,ny=Math.round((w.y-drag.oy)/10)*10;if(nx!==drag.b.x||ny!==drag.b.y)drag.moved=true;drag.b.x=nx;drag.b.y=ny}
+  else if(drag.type==='wire'){drag.x=w.x;drag.y=w.y}
+  else if(drag.type==='pan'){view.x=drag.vx+e.clientX-drag.sx;view.y=drag.vy+e.clientY-drag.sy}
+  render();
+});
+sv.addEventListener('pointerup',e=>{
+  if(!drag)return;const w=toWorld(e);
+  if(drag.type==='wire'){let best=null,bd=16/view.k;
+    for(const b of blocks)T[b.t].ins.forEach((_,i)=>{const p=pin(b,i);const d=Math.hypot(p.x-w.x,p.y-w.y);if(d<bd){bd=d;best={b,i}}});
+    if(best){wires=wires.filter(x=>!(x.to===best.b.id&&x.ti===best.i));wires.push({id:wid++,from:drag.b,fi:drag.i,to:best.b.id,ti:best.i})}}
+  else if(drag.type==='block'&&!drag.moved&&drag.b.t==='in1'){drag.b.s.val^=1;inspector()}
+  drag=null;sv.classList.remove('dragging');render();
+});
+sv.addEventListener('wheel',e=>{
+  e.preventDefault();const r=sv.getBoundingClientRect();const mx=e.clientX-r.left,my=e.clientY-r.top;
+  const k2=Math.max(.3,Math.min(3,view.k*(e.deltaY<0?1.1:0.9)));
+  view.x=mx-(mx-view.x)*k2/view.k;view.y=my-(my-view.y)*k2/view.k;view.k=k2;render();
+},{passive:false});
+
+function deleteSel(){
+  if(!sel)return;
+  if(sel.w)wires=wires.filter(w=>w.id!==sel.w);
+  else{blocks=blocks.filter(b=>b.id!==sel.b);wires=wires.filter(w=>w.from!==sel.b&&w.to!==sel.b)}
+  sel=null;render();inspector();
+}
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT')return;
+  if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();deleteSel()}
+});
+$('del').onclick=deleteSel;
+$('step').onclick=step;
+$('rst').onclick=powerOn;
+$('run').onclick=()=>{if(timer){clearInterval(timer);timer=null;$('run').textContent='Run'}else{timer=setInterval(step,700);$('run').textContent='Pause'}};
+$('timclr').onclick=()=>{hist=[];render()};
+$('timtog').onclick=e=>{const t=$('tim');t.classList.toggle('hidden');e.target.textContent=t.classList.contains('hidden')?'Show':'Hide'};
+$('exp').onclick=()=>{const data=JSON.stringify({blocks,wires,hist,nid,wid,cycle},null,1);
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type:'application/json'}));a.download='rtl_design.json';a.click()};
+$('imp').onclick=()=>$('file').click();
+$('file').onchange=e=>{const f=e.target.files[0];if(!f)return;
+  f.text().then(t=>{try{const d=JSON.parse(t);blocks=(d.blocks||[]).filter(b=>T[b.t]);wires=d.wires||[];hist=d.hist||[];
+    nid=d.nid||blocks.reduce((m,b)=>Math.max(m,b.id),0)+1;wid=d.wid||wires.reduce((m,w)=>Math.max(m,w.id),0)+1;cycle=d.cycle||0;
+    blocks.forEach(b=>{if(!b.s)b.s=T[b.t].st?T[b.t].st():{};if(b.tr===undefined)b.tr=!!T[b.t].tr});sel=null;render();inspector()}
+    catch(err){alert('That file is not a saved playground design.')}});e.target.value=''};
+
+render();inspector();
+</script>
+</body>
+</html>

@@ -1,0 +1,354 @@
+{
+ "version": 2,
+ "name": "Full adder from gates",
+ "top": "top",
+ "options": {
+  "resetStyle": "sync_high",
+  "xUntilReset": false,
+  "clockName": "clk",
+  "resetName": "rst"
+ },
+ "modules": {
+  "top": {
+   "source": "schematic",
+   "ports": [],
+   "blocks": [
+    {
+     "id": "a",
+     "type": "in",
+     "params": {
+      "width": 1,
+      "value": 0
+     },
+     "x": 40,
+     "y": 110,
+     "trace": true,
+     "label": "a"
+    },
+    {
+     "id": "b",
+     "type": "in",
+     "params": {
+      "width": 1,
+      "value": 0
+     },
+     "x": 40,
+     "y": 180,
+     "trace": true,
+     "label": "b"
+    },
+    {
+     "id": "cin",
+     "type": "in",
+     "params": {
+      "width": 1,
+      "value": 0
+     },
+     "x": 40,
+     "y": 300,
+     "trace": true,
+     "label": "cin"
+    },
+    {
+     "id": "x1",
+     "type": "xor",
+     "params": {
+      "n": 2,
+      "width": 1
+     },
+     "x": 220,
+     "y": 120,
+     "trace": false
+    },
+    {
+     "id": "x2",
+     "type": "xor",
+     "params": {
+      "n": 2,
+      "width": 1
+     },
+     "x": 400,
+     "y": 140,
+     "trace": false
+    },
+    {
+     "id": "a1",
+     "type": "and",
+     "params": {
+      "n": 2,
+      "width": 1
+     },
+     "x": 400,
+     "y": 250,
+     "trace": false
+    },
+    {
+     "id": "a2",
+     "type": "and",
+     "params": {
+      "n": 2,
+      "width": 1
+     },
+     "x": 400,
+     "y": 340,
+     "trace": false
+    },
+    {
+     "id": "o1",
+     "type": "or",
+     "params": {
+      "n": 2,
+      "width": 1
+     },
+     "x": 560,
+     "y": 290,
+     "trace": false
+    },
+    {
+     "id": "sum",
+     "type": "out",
+     "params": {
+      "width": 1
+     },
+     "x": 720,
+     "y": 147,
+     "trace": true,
+     "label": "sum"
+    },
+    {
+     "id": "cout",
+     "type": "out",
+     "params": {
+      "width": 1
+     },
+     "x": 720,
+     "y": 297,
+     "trace": true,
+     "label": "cout"
+    }
+   ],
+   "wires": [
+    {
+     "id": "w1",
+     "from": {
+      "b": "a",
+      "p": "y"
+     },
+     "to": {
+      "b": "x1",
+      "p": "i0"
+     }
+    },
+    {
+     "id": "w2",
+     "from": {
+      "b": "b",
+      "p": "y"
+     },
+     "to": {
+      "b": "x1",
+      "p": "i1"
+     }
+    },
+    {
+     "id": "w3",
+     "from": {
+      "b": "x1",
+      "p": "y"
+     },
+     "to": {
+      "b": "x2",
+      "p": "i0"
+     }
+    },
+    {
+     "id": "w4",
+     "from": {
+      "b": "cin",
+      "p": "y"
+     },
+     "to": {
+      "b": "x2",
+      "p": "i1"
+     }
+    },
+    {
+     "id": "w5",
+     "from": {
+      "b": "x1",
+      "p": "y"
+     },
+     "to": {
+      "b": "a1",
+      "p": "i0"
+     }
+    },
+    {
+     "id": "w6",
+     "from": {
+      "b": "cin",
+      "p": "y"
+     },
+     "to": {
+      "b": "a1",
+      "p": "i1"
+     }
+    },
+    {
+     "id": "w7",
+     "from": {
+      "b": "a",
+      "p": "y"
+     },
+     "to": {
+      "b": "a2",
+      "p": "i0"
+     }
+    },
+    {
+     "id": "w8",
+     "from": {
+      "b": "b",
+      "p": "y"
+     },
+     "to": {
+      "b": "a2",
+      "p": "i1"
+     }
+    },
+    {
+     "id": "w9",
+     "from": {
+      "b": "a1",
+      "p": "y"
+     },
+     "to": {
+      "b": "o1",
+      "p": "i0"
+     }
+    },
+    {
+     "id": "w10",
+     "from": {
+      "b": "a2",
+      "p": "y"
+     },
+     "to": {
+      "b": "o1",
+      "p": "i1"
+     }
+    },
+    {
+     "id": "w11",
+     "from": {
+      "b": "x2",
+      "p": "y"
+     },
+     "to": {
+      "b": "sum",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w12",
+     "from": {
+      "b": "o1",
+      "p": "y"
+     },
+     "to": {
+      "b": "cout",
+      "p": "a"
+     }
+    }
+   ],
+   "notes": [
+    {
+     "id": "note1",
+     "x": 40,
+     "y": 20,
+     "w": 560,
+     "h": 50,
+     "text": "A full adder built from two XOR gates, two AND gates and an OR gate. sum = a xor b xor cin, cout = ab + cin(a xor b). Toggle the inputs and compare with the tests."
+    }
+   ],
+   "locked": []
+  }
+ },
+ "tests": [
+  {
+   "name": "All eight input combinations",
+   "module": "top",
+   "columns": [
+    "a",
+    "b",
+    "cin",
+    "sum",
+    "cout"
+   ],
+   "rows": [
+    [
+     "0",
+     "0",
+     "0",
+     "0",
+     "0"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "0"
+    ],
+    [
+     "0",
+     "1",
+     "0",
+     "1",
+     "0"
+    ],
+    [
+     "0",
+     "1",
+     "1",
+     "0",
+     "1"
+    ],
+    [
+     "1",
+     "0",
+     "0",
+     "1",
+     "0"
+    ],
+    [
+     "1",
+     "0",
+     "1",
+     "0",
+     "1"
+    ],
+    [
+     "1",
+     "1",
+     "0",
+     "0",
+     "1"
+    ],
+    [
+     "1",
+     "1",
+     "1",
+     "1",
+     "1"
+    ]
+   ]
+  }
+ ],
+ "views": {
+  "wave": {
+   "signals": [],
+   "radix": {}
+  }
+ }
+}

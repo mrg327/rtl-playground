@@ -1,0 +1,246 @@
+{
+ "version": 2,
+ "name": "8-bit ALU",
+ "top": "top",
+ "options": {
+  "resetStyle": "sync_high",
+  "xUntilReset": false,
+  "clockName": "clk",
+  "resetName": "rst"
+ },
+ "modules": {
+  "top": {
+   "source": "schematic",
+   "ports": [],
+   "blocks": [
+    {
+     "id": "a",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": 12
+     },
+     "x": 40,
+     "y": 110,
+     "trace": true,
+     "label": "a"
+    },
+    {
+     "id": "b",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": 5
+     },
+     "x": 40,
+     "y": 190,
+     "trace": true,
+     "label": "b"
+    },
+    {
+     "id": "op",
+     "type": "in",
+     "params": {
+      "width": 3,
+      "value": 0
+     },
+     "x": 40,
+     "y": 320,
+     "trace": true,
+     "label": "op"
+    },
+    {
+     "id": "alu1",
+     "type": "alu",
+     "params": {
+      "width": 8
+     },
+     "x": 260,
+     "y": 110,
+     "trace": false
+    },
+    {
+     "id": "y",
+     "type": "out",
+     "params": {
+      "width": 8
+     },
+     "x": 420,
+     "y": 127,
+     "trace": true,
+     "label": "result"
+    },
+    {
+     "id": "z",
+     "type": "out",
+     "params": {
+      "width": 1
+     },
+     "x": 420,
+     "y": 155,
+     "trace": true,
+     "label": "zero"
+    }
+   ],
+   "wires": [
+    {
+     "id": "w1",
+     "from": {
+      "b": "a",
+      "p": "y"
+     },
+     "to": {
+      "b": "alu1",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w2",
+     "from": {
+      "b": "b",
+      "p": "y"
+     },
+     "to": {
+      "b": "alu1",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w3",
+     "from": {
+      "b": "op",
+      "p": "y"
+     },
+     "to": {
+      "b": "alu1",
+      "p": "op"
+     }
+    },
+    {
+     "id": "w4",
+     "from": {
+      "b": "alu1",
+      "p": "y"
+     },
+     "to": {
+      "b": "y",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w5",
+     "from": {
+      "b": "alu1",
+      "p": "z"
+     },
+     "to": {
+      "b": "z",
+      "p": "a"
+     }
+    }
+   ],
+   "notes": [
+    {
+     "id": "note1",
+     "x": 40,
+     "y": 20,
+     "w": 560,
+     "h": 50,
+     "text": "op selects the operation: 0 add, 1 sub, 2 and, 3 or, 4 xor, 5 set-less-than (signed), 6 shift left, 7 shift right. zero is 1 when the result is 0."
+    }
+   ],
+   "locked": []
+  }
+ },
+ "tests": [
+  {
+   "name": "Every operation",
+   "module": "top",
+   "columns": [
+    "a",
+    "b",
+    "op",
+    "y",
+    "z"
+   ],
+   "rows": [
+    [
+     "12",
+     "5",
+     "0",
+     "17",
+     "0"
+    ],
+    [
+     "12",
+     "5",
+     "1",
+     "7",
+     "0"
+    ],
+    [
+     "12",
+     "5",
+     "2",
+     "4",
+     "0"
+    ],
+    [
+     "12",
+     "5",
+     "3",
+     "13",
+     "0"
+    ],
+    [
+     "12",
+     "5",
+     "4",
+     "9",
+     "0"
+    ],
+    [
+     "12",
+     "5",
+     "5",
+     "0",
+     "1"
+    ],
+    [
+     "250",
+     "5",
+     "5",
+     "1",
+     "0"
+    ],
+    [
+     "12",
+     "2",
+     "6",
+     "48",
+     "0"
+    ],
+    [
+     "12",
+     "2",
+     "7",
+     "3",
+     "0"
+    ],
+    [
+     "5",
+     "5",
+     "1",
+     "0",
+     "1"
+    ]
+   ]
+  }
+ ],
+ "views": {
+  "wave": {
+   "signals": [],
+   "radix": {}
+  }
+ }
+}

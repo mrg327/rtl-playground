@@ -1,0 +1,378 @@
+{
+ "version": 2,
+ "name": "Basic gates",
+ "top": "top",
+ "options": {
+  "resetStyle": "sync_high",
+  "xUntilReset": false,
+  "clockName": "clk",
+  "resetName": "rst"
+ },
+ "modules": {
+  "top": {
+   "source": "schematic",
+   "ports": [],
+   "blocks": [
+    {
+     "id": "a",
+     "type": "in",
+     "params": {
+      "width": 1,
+      "value": 0
+     },
+     "x": 40,
+     "y": 110,
+     "trace": true,
+     "label": "a"
+    },
+    {
+     "id": "b",
+     "type": "in",
+     "params": {
+      "width": 1,
+      "value": 0
+     },
+     "x": 40,
+     "y": 330,
+     "trace": true,
+     "label": "b"
+    },
+    {
+     "id": "and1",
+     "type": "and",
+     "params": {
+      "n": 2,
+      "width": 1
+     },
+     "x": 260,
+     "y": 90,
+     "trace": false
+    },
+    {
+     "id": "and_out",
+     "type": "out",
+     "params": {
+      "width": 1
+     },
+     "x": 420,
+     "y": 97,
+     "trace": true,
+     "label": "a and b"
+    },
+    {
+     "id": "or1",
+     "type": "or",
+     "params": {
+      "n": 2,
+      "width": 1
+     },
+     "x": 260,
+     "y": 170,
+     "trace": false
+    },
+    {
+     "id": "or_out",
+     "type": "out",
+     "params": {
+      "width": 1
+     },
+     "x": 420,
+     "y": 177,
+     "trace": true,
+     "label": "a or b"
+    },
+    {
+     "id": "xor1",
+     "type": "xor",
+     "params": {
+      "n": 2,
+      "width": 1
+     },
+     "x": 260,
+     "y": 250,
+     "trace": false
+    },
+    {
+     "id": "xor_out",
+     "type": "out",
+     "params": {
+      "width": 1
+     },
+     "x": 420,
+     "y": 257,
+     "trace": true,
+     "label": "a xor b"
+    },
+    {
+     "id": "nand1",
+     "type": "nand",
+     "params": {
+      "n": 2,
+      "width": 1
+     },
+     "x": 260,
+     "y": 330,
+     "trace": false
+    },
+    {
+     "id": "nand_out",
+     "type": "out",
+     "params": {
+      "width": 1
+     },
+     "x": 420,
+     "y": 337,
+     "trace": true,
+     "label": "a nand b"
+    },
+    {
+     "id": "not1",
+     "type": "not",
+     "params": {
+      "width": 1
+     },
+     "x": 260,
+     "y": 420,
+     "trace": false
+    },
+    {
+     "id": "not_out",
+     "type": "out",
+     "params": {
+      "width": 1
+     },
+     "x": 420,
+     "y": 420,
+     "trace": true,
+     "label": "not a"
+    }
+   ],
+   "wires": [
+    {
+     "id": "w1",
+     "from": {
+      "b": "a",
+      "p": "y"
+     },
+     "to": {
+      "b": "and1",
+      "p": "i0"
+     }
+    },
+    {
+     "id": "w2",
+     "from": {
+      "b": "b",
+      "p": "y"
+     },
+     "to": {
+      "b": "and1",
+      "p": "i1"
+     }
+    },
+    {
+     "id": "w3",
+     "from": {
+      "b": "and1",
+      "p": "y"
+     },
+     "to": {
+      "b": "and_out",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w4",
+     "from": {
+      "b": "a",
+      "p": "y"
+     },
+     "to": {
+      "b": "or1",
+      "p": "i0"
+     }
+    },
+    {
+     "id": "w5",
+     "from": {
+      "b": "b",
+      "p": "y"
+     },
+     "to": {
+      "b": "or1",
+      "p": "i1"
+     }
+    },
+    {
+     "id": "w6",
+     "from": {
+      "b": "or1",
+      "p": "y"
+     },
+     "to": {
+      "b": "or_out",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w7",
+     "from": {
+      "b": "a",
+      "p": "y"
+     },
+     "to": {
+      "b": "xor1",
+      "p": "i0"
+     }
+    },
+    {
+     "id": "w8",
+     "from": {
+      "b": "b",
+      "p": "y"
+     },
+     "to": {
+      "b": "xor1",
+      "p": "i1"
+     }
+    },
+    {
+     "id": "w9",
+     "from": {
+      "b": "xor1",
+      "p": "y"
+     },
+     "to": {
+      "b": "xor_out",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w10",
+     "from": {
+      "b": "a",
+      "p": "y"
+     },
+     "to": {
+      "b": "nand1",
+      "p": "i0"
+     }
+    },
+    {
+     "id": "w11",
+     "from": {
+      "b": "b",
+      "p": "y"
+     },
+     "to": {
+      "b": "nand1",
+      "p": "i1"
+     }
+    },
+    {
+     "id": "w12",
+     "from": {
+      "b": "nand1",
+      "p": "y"
+     },
+     "to": {
+      "b": "nand_out",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w13",
+     "from": {
+      "b": "a",
+      "p": "y"
+     },
+     "to": {
+      "b": "not1",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w14",
+     "from": {
+      "b": "not1",
+      "p": "y"
+     },
+     "to": {
+      "b": "not_out",
+      "p": "a"
+     }
+    }
+   ],
+   "notes": [
+    {
+     "id": "note1",
+     "x": 40,
+     "y": 20,
+     "w": 520,
+     "h": 50,
+     "text": "Click the inputs a and b to toggle them and watch each gate. Fill in the truth table for every output, then check it with the Tests tab."
+    }
+   ],
+   "locked": []
+  }
+ },
+ "tests": [
+  {
+   "name": "Truth table",
+   "module": "top",
+   "columns": [
+    "a",
+    "b",
+    "and_out",
+    "or_out",
+    "xor_out",
+    "nand_out",
+    "not_out"
+   ],
+   "rows": [
+    [
+     "0",
+     "0",
+     "0",
+     "0",
+     "0",
+     "1",
+     "1"
+    ],
+    [
+     "0",
+     "1",
+     "0",
+     "1",
+     "1",
+     "1",
+     "1"
+    ],
+    [
+     "1",
+     "0",
+     "0",
+     "1",
+     "1",
+     "1",
+     "0"
+    ],
+    [
+     "1",
+     "1",
+     "1",
+     "1",
+     "0",
+     "0",
+     "0"
+    ]
+   ]
+  }
+ ],
+ "views": {
+  "wave": {
+   "signals": [],
+   "radix": {}
+  }
+ }
+}

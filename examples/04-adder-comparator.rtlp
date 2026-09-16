@@ -1,0 +1,246 @@
+{
+ "version": 2,
+ "name": "8-bit adder and comparator",
+ "top": "top",
+ "options": {
+  "resetStyle": "sync_high",
+  "xUntilReset": false,
+  "clockName": "clk",
+  "resetName": "rst"
+ },
+ "modules": {
+  "top": {
+   "source": "schematic",
+   "ports": [],
+   "blocks": [
+    {
+     "id": "a",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": 200
+     },
+     "x": 40,
+     "y": 110,
+     "trace": true,
+     "label": "a"
+    },
+    {
+     "id": "b",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": 100
+     },
+     "x": 40,
+     "y": 190,
+     "trace": true,
+     "label": "b"
+    },
+    {
+     "id": "add1",
+     "type": "add",
+     "params": {
+      "width": 8,
+      "cin": false,
+      "cout": true
+     },
+     "x": 260,
+     "y": 120,
+     "trace": false
+    },
+    {
+     "id": "s",
+     "type": "out",
+     "params": {
+      "width": 8
+     },
+     "x": 420,
+     "y": 127,
+     "trace": true,
+     "label": "sum"
+    },
+    {
+     "id": "co",
+     "type": "out",
+     "params": {
+      "width": 1
+     },
+     "x": 420,
+     "y": 151,
+     "trace": true,
+     "label": "carry"
+    },
+    {
+     "id": "cmp1",
+     "type": "cmp",
+     "params": {
+      "width": 8,
+      "op": "eq",
+      "signed": false
+     },
+     "x": 260,
+     "y": 260,
+     "trace": false
+    },
+    {
+     "id": "eq",
+     "type": "out",
+     "params": {
+      "width": 1
+     },
+     "x": 420,
+     "y": 271,
+     "trace": true,
+     "label": "a == b"
+    }
+   ],
+   "wires": [
+    {
+     "id": "w1",
+     "from": {
+      "b": "a",
+      "p": "y"
+     },
+     "to": {
+      "b": "add1",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w2",
+     "from": {
+      "b": "b",
+      "p": "y"
+     },
+     "to": {
+      "b": "add1",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w3",
+     "from": {
+      "b": "add1",
+      "p": "s"
+     },
+     "to": {
+      "b": "s",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w4",
+     "from": {
+      "b": "add1",
+      "p": "co"
+     },
+     "to": {
+      "b": "co",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w5",
+     "from": {
+      "b": "a",
+      "p": "y"
+     },
+     "to": {
+      "b": "cmp1",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w6",
+     "from": {
+      "b": "b",
+      "p": "y"
+     },
+     "to": {
+      "b": "cmp1",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w7",
+     "from": {
+      "b": "cmp1",
+      "p": "y"
+     },
+     "to": {
+      "b": "eq",
+      "p": "a"
+     }
+    }
+   ],
+   "notes": [
+    {
+     "id": "note1",
+     "x": 40,
+     "y": 20,
+     "w": 560,
+     "h": 50,
+     "text": "An 8-bit adder with carry-out and an equality comparator. Try a + b > 255 to see the carry. Hover a bus to read its value in binary and hex."
+    }
+   ],
+   "locked": []
+  }
+ },
+ "tests": [
+  {
+   "name": "Sums and carries",
+   "module": "top",
+   "columns": [
+    "a",
+    "b",
+    "s",
+    "co",
+    "eq"
+   ],
+   "rows": [
+    [
+     "1",
+     "2",
+     "3",
+     "0",
+     "0"
+    ],
+    [
+     "200",
+     "100",
+     "44",
+     "1",
+     "0"
+    ],
+    [
+     "255",
+     "1",
+     "0",
+     "1",
+     "0"
+    ],
+    [
+     "8'hF0",
+     "8'hF0",
+     "224",
+     "1",
+     "1"
+    ],
+    [
+     "0",
+     "0",
+     "0",
+     "0",
+     "1"
+    ]
+   ]
+  }
+ ],
+ "views": {
+  "wave": {
+   "signals": [],
+   "radix": {}
+  }
+ }
+}

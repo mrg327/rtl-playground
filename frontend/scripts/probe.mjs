@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const url = process.argv[2];
+const browser = await chromium.launch(); const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+await page.goto(url); await page.waitForTimeout(500);
+await page.evaluate(async () => { const r = await fetch('/api/file?path=examples/01-gates.rtlp'); const f = await r.json(); window.rtlp.loadDesign(JSON.parse(f.text), 'x'); });
+await page.waitForTimeout(200);
+const dump = () => page.evaluate(() => [...document.querySelectorAll('#wave .wv-row')].map(r => ({ n: r.querySelector('.wv-name')?.textContent, top: r.offsetTop, h: r.offsetHeight, disp: getComputedStyle(r).display, cls: r.className })));
+console.log('before', JSON.stringify(await dump()));
+await page.click('[data-b="a"] .body'); await page.waitForTimeout(150);
+console.log('after ', JSON.stringify(await dump()));
+await browser.close();

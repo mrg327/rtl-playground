@@ -1,0 +1,219 @@
+{
+ "version": 2,
+ "name": "Counters",
+ "top": "top",
+ "options": {
+  "resetStyle": "sync_high",
+  "xUntilReset": false,
+  "clockName": "clk",
+  "resetName": "rst"
+ },
+ "modules": {
+  "top": {
+   "source": "schematic",
+   "ports": [],
+   "blocks": [
+    {
+     "id": "en",
+     "type": "in",
+     "params": {
+      "width": 1,
+      "value": 1
+     },
+     "x": 40,
+     "y": 110,
+     "trace": true,
+     "label": "en"
+    },
+    {
+     "id": "cnt",
+     "type": "counter",
+     "params": {
+      "width": 4,
+      "en": true,
+      "load": false,
+      "down": false,
+      "init": 0
+     },
+     "x": 260,
+     "y": 100,
+     "trace": true,
+     "label": "count"
+    },
+    {
+     "id": "q",
+     "type": "out",
+     "params": {
+      "width": 4
+     },
+     "x": 440,
+     "y": 104,
+     "trace": true,
+     "label": "q"
+    },
+    {
+     "id": "wrap",
+     "type": "out",
+     "params": {
+      "width": 1
+     },
+     "x": 440,
+     "y": 130,
+     "trace": true,
+     "label": "wrap"
+    },
+    {
+     "id": "free",
+     "type": "counter",
+     "params": {
+      "width": 3,
+      "en": false,
+      "load": false,
+      "down": false,
+      "init": 0
+     },
+     "x": 260,
+     "y": 260,
+     "trace": true,
+     "label": "free-running"
+    },
+    {
+     "id": "q2",
+     "type": "out",
+     "params": {
+      "width": 3
+     },
+     "x": 440,
+     "y": 264,
+     "trace": true,
+     "label": "q2"
+    }
+   ],
+   "wires": [
+    {
+     "id": "w1",
+     "from": {
+      "b": "en",
+      "p": "y"
+     },
+     "to": {
+      "b": "cnt",
+      "p": "en"
+     }
+    },
+    {
+     "id": "w2",
+     "from": {
+      "b": "cnt",
+      "p": "q"
+     },
+     "to": {
+      "b": "q",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w3",
+     "from": {
+      "b": "cnt",
+      "p": "co"
+     },
+     "to": {
+      "b": "wrap",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w4",
+     "from": {
+      "b": "free",
+      "p": "q"
+     },
+     "to": {
+      "b": "q2",
+      "p": "a"
+     }
+    }
+   ],
+   "notes": [
+    {
+     "id": "note1",
+     "x": 40,
+     "y": 20,
+     "w": 600,
+     "h": 50,
+     "text": "The top counter only counts while en = 1; wrap goes high in the cycle before it rolls over. The bottom counter is free-running. Press Space to clock, Shift+Space to go back, and watch the waveform."
+    }
+   ],
+   "locked": []
+  }
+ },
+ "tests": [
+  {
+   "name": "Count, hold, wrap",
+   "module": "top",
+   "columns": [
+    "en",
+    "q",
+    "wrap",
+    "q2"
+   ],
+   "rows": [
+    [
+     "1",
+     "0",
+     "0",
+     "0"
+    ],
+    [
+     "1",
+     "1",
+     "0",
+     "1"
+    ],
+    [
+     "0",
+     "2",
+     "0",
+     "2"
+    ],
+    [
+     "0",
+     "2",
+     "0",
+     "3"
+    ],
+    [
+     "1",
+     "2",
+     "0",
+     "4"
+    ],
+    [
+     "C*12",
+     "",
+     "",
+     ""
+    ],
+    [
+     "1",
+     "15",
+     "1",
+     "1"
+    ],
+    [
+     "1",
+     "0",
+     "0",
+     "2"
+    ]
+   ]
+  }
+ ],
+ "views": {
+  "wave": {
+   "signals": [],
+   "radix": {}
+  }
+ }
+}

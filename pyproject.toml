@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rtl-playground"
+version = "0.1.0a1"
+description = "Educational digital-design tool: schematic and FSM editor, simulator, waveforms, and a SystemVerilog bridge, launched with uvx."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["digital-design", "rtl", "fsm", "systemverilog", "education", "simulator"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Web Environment",
+  "Intended Audience :: Education",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Education",
+  "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+# Zero runtime dependencies: the host is stdlib only.
+dependencies = []
+
+[project.optional-dependencies]
+hdl = ["yowasp-yosys>=0.50"]
+desktop = ["pywebview>=5"]
+
+[project.scripts]
+rtl-playground = "rtl_playground.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/rtl-playground/rtl-playground"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rtl_playground"]
+# static/ is gitignored, so it must be listed as an artifact to land in the wheel.
+artifacts = ["src/rtl_playground/static/**"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/rtl_playground/**",
+  "frontend/**",
+  "tests/**",
+  "hatch_build.py",
+  "README.md",
+  "pyproject.toml",
+]
+exclude = [
+  "**/node_modules/**",
+  "src/rtl_playground/static/**",
+  "frontend/dist/**",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

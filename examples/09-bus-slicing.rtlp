@@ -1,0 +1,267 @@
+{
+ "version": 2,
+ "name": "Bus slicing and extension",
+ "top": "top",
+ "options": {
+  "resetStyle": "sync_high",
+  "xUntilReset": false,
+  "clockName": "clk",
+  "resetName": "rst"
+ },
+ "modules": {
+  "top": {
+   "source": "schematic",
+   "ports": [],
+   "blocks": [
+    {
+     "id": "x",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": "8'hA5"
+     },
+     "x": 40,
+     "y": 110,
+     "trace": true,
+     "label": "x"
+    },
+    {
+     "id": "sp",
+     "type": "split",
+     "params": {
+      "widths": "4 4"
+     },
+     "x": 220,
+     "y": 100,
+     "trace": false
+    },
+    {
+     "id": "jn",
+     "type": "join",
+     "params": {
+      "widths": "4 4"
+     },
+     "x": 360,
+     "y": 100,
+     "trace": false
+    },
+    {
+     "id": "swapped",
+     "type": "out",
+     "params": {
+      "width": 8
+     },
+     "x": 500,
+     "y": 107,
+     "trace": true,
+     "label": "swapped"
+    },
+    {
+     "id": "bit",
+     "type": "in",
+     "params": {
+      "width": 1,
+      "value": 1
+     },
+     "x": 40,
+     "y": 250,
+     "trace": true,
+     "label": "bit"
+    },
+    {
+     "id": "z",
+     "type": "ext",
+     "params": {
+      "inw": 1,
+      "outw": 8,
+      "signed": false
+     },
+     "x": 220,
+     "y": 247,
+     "trace": false
+    },
+    {
+     "id": "zext",
+     "type": "out",
+     "params": {
+      "width": 8
+     },
+     "x": 500,
+     "y": 250,
+     "trace": true,
+     "label": "zero-ext"
+    },
+    {
+     "id": "k",
+     "type": "const",
+     "params": {
+      "width": 4,
+      "value": "4'b1010"
+     },
+     "x": 40,
+     "y": 340,
+     "trace": false
+    },
+    {
+     "id": "s",
+     "type": "ext",
+     "params": {
+      "inw": 4,
+      "outw": 8,
+      "signed": true
+     },
+     "x": 220,
+     "y": 340,
+     "trace": false
+    },
+    {
+     "id": "sext",
+     "type": "out",
+     "params": {
+      "width": 8
+     },
+     "x": 500,
+     "y": 343,
+     "trace": true,
+     "label": "sign-ext"
+    }
+   ],
+   "wires": [
+    {
+     "id": "w1",
+     "from": {
+      "b": "x",
+      "p": "y"
+     },
+     "to": {
+      "b": "sp",
+      "p": "i"
+     }
+    },
+    {
+     "id": "w2",
+     "from": {
+      "b": "sp",
+      "p": "o0"
+     },
+     "to": {
+      "b": "jn",
+      "p": "i1"
+     }
+    },
+    {
+     "id": "w3",
+     "from": {
+      "b": "sp",
+      "p": "o1"
+     },
+     "to": {
+      "b": "jn",
+      "p": "i0"
+     }
+    },
+    {
+     "id": "w4",
+     "from": {
+      "b": "jn",
+      "p": "o"
+     },
+     "to": {
+      "b": "swapped",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w5",
+     "from": {
+      "b": "bit",
+      "p": "y"
+     },
+     "to": {
+      "b": "z",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w6",
+     "from": {
+      "b": "z",
+      "p": "y"
+     },
+     "to": {
+      "b": "zext",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w7",
+     "from": {
+      "b": "k",
+      "p": "y"
+     },
+     "to": {
+      "b": "s",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w8",
+     "from": {
+      "b": "s",
+      "p": "y"
+     },
+     "to": {
+      "b": "sext",
+      "p": "a"
+     }
+    }
+   ],
+   "notes": [
+    {
+     "id": "note1",
+     "x": 40,
+     "y": 20,
+     "w": 620,
+     "h": 50,
+     "text": "Split breaks an 8-bit bus into two nibbles; Join puts them back in the other order (a nibble swap). Below, zero-extension and sign-extension of narrow values into 8 bits."
+    }
+   ],
+   "locked": []
+  }
+ },
+ "tests": [
+  {
+   "name": "Swap and extend",
+   "module": "top",
+   "columns": [
+    "x",
+    "bit",
+    "swapped",
+    "zext",
+    "sext"
+   ],
+   "rows": [
+    [
+     "8'hA5",
+     "1",
+     "8'h5A",
+     "1",
+     "8'hFA"
+    ],
+    [
+     "8'h12",
+     "0",
+     "8'h21",
+     "0",
+     "8'hFA"
+    ]
+   ]
+  }
+ ],
+ "views": {
+  "wave": {
+   "signals": [],
+   "radix": {}
+  }
+ }
+}

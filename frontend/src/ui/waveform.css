@@ -1,0 +1,152 @@
+.wv-root {
+  --_bg: var(--wave-bg, var(--paper, #ffffff));
+  --_grid: var(--wave-grid, var(--grid, #e0e0e0));
+  --_line: var(--wave-line, var(--ink, #1a1a1a));
+  --_text: var(--wave-text, var(--ink2, #444444));
+  --_cursor: var(--wave-cursor, var(--sel, #2563eb));
+  --_live: var(--wave-live, rgba(37, 99, 235, 0.08));
+  --_hi: var(--wave-hi, var(--hi, rgba(255, 200, 0, 0.18)));
+
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--_bg);
+  color: var(--_text);
+  font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden;
+  position: relative;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.wv-root * { box-sizing: border-box; }
+
+.wv-names {
+  flex: 0 0 auto;
+  width: 150px;
+  overflow: hidden;
+  border-right: 1px solid var(--_grid);
+  background: var(--_bg);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.wv-names-header {
+  height: 28px;
+  flex: 0 0 28px;
+  border-bottom: 1px solid var(--_grid);
+}
+
+.wv-names-body {
+  flex: 1 1 auto;
+  overflow: hidden;
+  position: relative;
+}
+
+.wv-row {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--_grid);
+  cursor: pointer;
+  user-select: none;
+  overflow: hidden;
+}
+
+.wv-row.wv-selected { background: var(--_hi); }
+
+.wv-row .wv-drag-handle {
+  cursor: grab;
+  opacity: 0.4;
+  flex: 0 0 auto;
+  font-size: 10px;
+}
+
+.wv-row .wv-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wv-row .wv-val {
+  flex: 0 0 auto;
+  max-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  color: var(--_line);
+  font-variant-numeric: tabular-nums;
+}
+
+.wv-row select.wv-radix {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 10px;
+  max-width: 46px;
+  background: transparent;
+  color: var(--_text);
+  border: 1px solid var(--_grid);
+  border-radius: 3px;
+}
+
+.wv-row .wv-remove {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--_text);
+  cursor: pointer;
+  opacity: 0.5;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px;
+}
+
+.wv-row .wv-remove:hover { opacity: 1; color: #d33; }
+
+.wv-row.wv-drag-over { box-shadow: inset 0 2px 0 var(--_cursor); }
+
+.wv-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.wv-canvas-pane {
+  flex: 1 1 auto;
+  overflow: auto;
+  position: relative;
+  min-width: 0;
+}
+
+.wv-canvas-inner {
+  position: relative;
+}
+
+.wv-canvas {
+  position: sticky;
+  left: 0;
+  display: block;
+}
+
+@media (prefers-color-scheme: dark) {
+  .wv-root {
+    --_bg: var(--wave-bg, var(--paper, #1e1e1e));
+    --_grid: var(--wave-grid, var(--grid, #3a3a3a));
+    --_line: var(--wave-line, var(--ink, #e8e8e8));
+    --_text: var(--wave-text, var(--ink2, #b0b0b0));
+    --_cursor: var(--wave-cursor, var(--sel, #5b9dff));
+    --_live: var(--wave-live, rgba(91, 157, 255, 0.12));
+    --_hi: var(--wave-hi, var(--hi, rgba(255, 200, 0, 0.14)));
+  }
+}

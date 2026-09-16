@@ -15,28 +15,39 @@ combinational-loop warning, and the waveform viewer](docs/screenshot.png)
 ## Quick start (students)
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) once.
-Then, from the folder where you keep your `.rtlp` files:
+Nothing else is needed: no Python, Node, or Git. Then, from the folder where
+you keep your `.rtlp` files, run the wheel attached to the current
+[GitHub release](https://github.com/mrg327/rtl-playground/releases):
 
 ```sh
-uvx rtl-playground@latest
+uvx --from https://github.com/mrg327/rtl-playground/releases/download/v0.1.0a1/rtl_playground-0.1.0a1-py3-none-any.whl rtl-playground
 ```
 
-That downloads the latest release (and a managed Python if you have none),
-starts the host on `127.0.0.1`, prints the URL, and opens your browser. The
-first run takes a while; later runs start in about a second. Press Ctrl-C to
+That downloads the release (and a managed Python if you have none), starts
+the host on `127.0.0.1`, prints the URL, and opens your browser. The first
+run takes a few seconds; later runs start in about a second. Press Ctrl-C to
 stop. If the browser does not open (WSL, remote sessions), paste the printed
 URL yourself; it carries a one-time token, so copy the whole line.
 
+Options go after the command name; a shell alias saves retyping the URL:
+
 ```sh
-uvx rtl-playground@latest counter.rtlp   # open a design straight away
-uvx rtl-playground@latest --dir ~/labs   # serve a different folder
-uvx rtl-playground@latest --port 8765    # fixed port (default: any free port)
-uvx rtl-playground@latest --no-browser   # just print the URL
+alias rtlp='uvx --from https://github.com/mrg327/rtl-playground/releases/download/v0.1.0a1/rtl_playground-0.1.0a1-py3-none-any.whl rtl-playground'
+rtlp counter.rtlp   # open a design straight away
+rtlp --dir ~/labs   # serve a different folder
+rtlp --port 8765    # fixed port (default: any free port)
+rtlp --no-browser   # just print the URL
 ```
 
-The syllabus pins `rtl-playground@~0.N` for the semester. Until the first
-release is on PyPI, run from a checkout: `uv run rtl-playground` or
-`uvx --from . rtl-playground` in the repo root.
+The syllabus names the release URL to use for the semester; a new release
+means a new URL. Other ways to run it:
+
+- **From PyPI**, once the package is published there (it is not yet):
+  `uvx rtl-playground@latest`, or `uvx rtl-playground@~0.N` to pin a series.
+- **From the source on GitHub**: `uvx --from git+https://github.com/mrg327/rtl-playground rtl-playground`.
+  This builds the front end on your machine, so it also needs Node.js 22
+  and takes a minute the first time.
+- **From a checkout**: `uv run rtl-playground` in the repo root (see below).
 
 ### Optional: SystemVerilog import and lint
 
@@ -44,7 +55,7 @@ HDL import and lint use [Yosys](https://yosyshq.net/yosys/) compiled to
 WebAssembly, shipped as the `hdl` extra:
 
 ```sh
-uvx --with yowasp-yosys rtl-playground@latest    # or: uvx "rtl-playground[hdl]@latest"
+uvx --with yowasp-yosys --from https://github.com/mrg327/rtl-playground/releases/download/v0.1.0a1/rtl_playground-0.1.0a1-py3-none-any.whl rtl-playground
 ```
 
 Without it the editor, simulator, and SystemVerilog *export* still work; only
@@ -79,8 +90,10 @@ The smoke test needs `npx playwright install chromium` once. `uv build` runs a
 hatchling hook that builds the front end with `npm ci && npm run build` when
 `src/rtl_playground/static/index.html` is missing (set `RTL_FORCE_JS_BUILD=1`
 to force it; editable installs skip it). CI builds the front end, checks the
-wheel, runs the tests, and publishes `v*` tags to PyPI with trusted
-publishing. Set `RTLP_DEBUG=1` to log every request the host handles.
+wheel, and runs the tests; on a `v*` tag it also attaches the wheel and sdist
+to a GitHub release, and publishes to PyPI with trusted publishing once the
+repository variable `PUBLISH_PYPI` is set to `true`. To release: bump
+`version` in `pyproject.toml`, commit, then `git tag v0.1.0 && git push --tags`. Set `RTLP_DEBUG=1` to log every request the host handles.
 
 Conventions: the design model is the single source of truth (simulation,
 rendering, tests and HDL derive from it); block semantics live only in

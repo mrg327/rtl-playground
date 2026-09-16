@@ -9,6 +9,9 @@ Everything runs locally: a stdlib-only Python host serves a static web front
 end on loopback and gives it a sandboxed file API rooted in the folder you
 launch it from, so designs are ordinary `.rtlp` files on disk.
 
+![RTL Playground with a homework design loaded: schematic with live values, a
+combinational-loop warning, and the waveform viewer](docs/screenshot.png)
+
 ## Quick start (students)
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) once.

@@ -30,7 +30,7 @@ desktop = ["pywebview>=5"]
 rtl-playground = "rtl_playground.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/rtl-playground/rtl-playground"
+Homepage = "https://github.com/mrg327/rtl-playground"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rtl_playground"]

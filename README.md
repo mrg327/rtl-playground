@@ -20,7 +20,7 @@ you keep your `.rtlp` files, run the wheel attached to the current
 [GitHub release](https://github.com/mrg327/rtl-playground/releases):
 
 ```sh
-uvx --from https://github.com/mrg327/rtl-playground/releases/download/v0.1.0a1/rtl_playground-0.1.0a1-py3-none-any.whl rtl-playground
+uvx --from https://github.com/mrg327/rtl-playground/releases/download/v0.1.0a2/rtl_playground-0.1.0a2-py3-none-any.whl rtl-playground
 ```
 
 That downloads the release (and a managed Python if you have none), starts
@@ -32,7 +32,7 @@ URL yourself; it carries a one-time token, so copy the whole line.
 Options go after the command name; a shell alias saves retyping the URL:
 
 ```sh
-alias rtlp='uvx --from https://github.com/mrg327/rtl-playground/releases/download/v0.1.0a1/rtl_playground-0.1.0a1-py3-none-any.whl rtl-playground'
+alias rtlp='uvx --from https://github.com/mrg327/rtl-playground/releases/download/v0.1.0a2/rtl_playground-0.1.0a2-py3-none-any.whl rtl-playground'
 rtlp counter.rtlp   # open a design straight away
 rtlp --dir ~/labs   # serve a different folder
 rtlp --port 8765    # fixed port (default: any free port)
@@ -55,7 +55,7 @@ HDL import and lint use [Yosys](https://yosyshq.net/yosys/) compiled to
 WebAssembly, shipped as the `hdl` extra:
 
 ```sh
-uvx --with yowasp-yosys --from https://github.com/mrg327/rtl-playground/releases/download/v0.1.0a1/rtl_playground-0.1.0a1-py3-none-any.whl rtl-playground
+uvx --with yowasp-yosys --from https://github.com/mrg327/rtl-playground/releases/download/v0.1.0a2/rtl_playground-0.1.0a2-py3-none-any.whl rtl-playground
 ```
 
 Without it the editor, simulator, and SystemVerilog *export* still work; only

@@ -10,6 +10,13 @@ await page.waitForTimeout(300);
 for (let i = 0; i < 5; i++) { await page.keyboard.press('Space'); await page.waitForTimeout(60); }
 await page.screenshot({ path: `${S}/02-counter.png` });
 const cycle = await page.textContent('#cycle');
+// a long run must not widen the app grid (the header would slide out of view and could not be scrolled back)
+const gridSize = () => page.evaluate(() => { const a = document.querySelector('#app'); return { w: a.scrollWidth, h: a.scrollHeight, runVisible: document.querySelector('#run').getBoundingClientRect().right <= innerWidth }; });
+const before = await gridSize();
+for (let i = 0; i < 300; i++) await page.keyboard.press('Space');
+const after = await gridSize();
+const gridOverflow = { grew: after.w !== before.w || after.h !== before.h, before, after };
+for (let i = 0; i < 300; i++) await page.keyboard.press('Shift+Space');
 // click the counter block to inspect
 await page.click('[data-b="cnt"] .body'); await page.waitForTimeout(200);
 await page.screenshot({ path: `${S}/03-inspect.png` });
@@ -34,5 +41,5 @@ await page.screenshot({ path: `${S}/05-gates.png` });
 await page.keyboard.press('F11'); await page.waitForTimeout(200); await page.screenshot({ path: `${S}/06-present.png` }); await page.keyboard.press('F11');
 await page.keyboard.press('Control+k'); await page.waitForTimeout(100); await page.keyboard.type('vcd'); await page.screenshot({ path: `${S}/07-palette.png` }); await page.keyboard.press('Escape');
 const wv = await page.evaluate(() => ({ rows: [...document.querySelectorAll('#wave .wv-row')].map(r => r.querySelector('.wv-name, span')?.textContent), namesTop: document.querySelector('#wave .wv-names-body').scrollTop, paneTop: document.querySelector('#wave .wv-canvas-pane').scrollTop }));
-console.log(JSON.stringify({ wv, cycle, cycle2, passes, aval, nblocks, nblocks2, errors }, null, 1));
+console.log(JSON.stringify({ wv, cycle, gridOverflow, cycle2, passes, aval, nblocks, nblocks2, errors }, null, 1));
 await browser.close();

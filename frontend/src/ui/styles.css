@@ -4,7 +4,8 @@
 :root[data-theme=light]{--paper:#f4f7f6;--grid:#dbe3e0;--ink:#1d3557;--ink2:#5b6b7c;--panel:#fff;--line:#d3dbd8;--note:#fff8dc;--sel:#2b7de9}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;font-family:var(--font);font-size:13px;color:var(--ink);background:var(--paper)}
-#app{display:grid;grid-template-columns:230px 1fr 260px;grid-template-rows:46px 1fr auto;height:100%;overflow:hidden}
+#app{display:grid;grid-template-columns:230px minmax(0,1fr) 260px;grid-template-rows:46px minmax(0,1fr) auto;height:100%;overflow:hidden}
+/* minmax(0,1fr): a bare 1fr track has an auto minimum, so the waveform's growing scroll content (cycles × px) would widen the whole grid and push the header controls out of view. */
 header{grid-column:1/4;display:flex;align-items:center;gap:6px;padding:0 10px;border-bottom:1px solid var(--line);background:var(--panel)}
 header h1{font-size:15px;font-weight:600;margin:0 10px 0 0;white-space:nowrap}
 header .file{color:var(--ink2);font-size:12px;margin-right:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -76,14 +77,14 @@ main{grid-column:2/3;grid-row:2/3;position:relative;overflow:hidden;display:flex
 .note.sel rect{stroke:var(--sel);stroke-width:2}
 .note .grip{fill:var(--line);cursor:nwse-resize}
 .notetext{font-family:var(--font);font-size:12px;color:var(--ink);line-height:1.4;overflow:hidden;pointer-events:none}
-.bottom{grid-column:2/3;grid-row:3/4;border-top:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;height:260px;min-height:0}
+.bottom{grid-column:2/3;grid-row:3/4;border-top:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;height:260px;min-height:0;min-width:0;overflow:hidden}
 .bottom.collapsed{height:auto}
 .bottom .tabs{display:flex;align-items:center;gap:2px;padding:4px 8px;border-bottom:1px solid var(--line)}
 .bottom .tabs button{border-color:transparent;padding:3px 10px;font-weight:500}
 .bottom .tabs button.active{background:var(--paper);border-color:var(--line)}
 .bottom .tabs .spacer{flex:1}
 .bottom .tabs .tool{font-size:12px;padding:2px 8px}
-.bottom .panel{flex:1;min-height:0;overflow:auto;display:none}
+.bottom .panel{flex:1;min-height:0;min-width:0;overflow:auto;display:none}
 .bottom .panel.active{display:block}
 .bottom.collapsed .panel{display:none!important}
 #wave.active{display:flex;height:100%}
@@ -125,7 +126,7 @@ main{grid-column:2/3;grid-row:2/3;position:relative;overflow:hidden;display:flex
 .inline-edit{position:absolute;font:13px var(--mono);padding:2px 4px;border:1px solid var(--sel);border-radius:3px;background:var(--panel);color:var(--ink);z-index:6;min-width:60px}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:8px 14px;border-radius:6px;font-size:13px;z-index:30;box-shadow:0 4px 16px rgba(0,0,0,.2)}
 .toast.error{background:var(--bad);color:#fff}
-body.present #app{grid-template-columns:0 1fr 0}
+body.present #app{grid-template-columns:0 minmax(0,1fr) 0}
 body.present aside{display:none}
 body.present header h1{font-size:18px}
 body.present .canvas svg{font-size:16px}
@@ -134,4 +135,4 @@ body.present .blk text{font-size:15px}
 body.present .blk text.v{font-size:17px}
 body.present .wv{font-size:14px}
 body.present .canvas .hint{display:none}
-@media (max-width:900px){#app{grid-template-columns:180px 1fr 220px}}
+@media (max-width:900px){#app{grid-template-columns:180px minmax(0,1fr) 220px}}

@@ -11,7 +11,7 @@ Educational RTL/gate-level schematic editor and cycle simulator for a masters di
 
 ## Commands
 - Front end: `cd frontend && npm install && npm run build` (type-checks, then builds into `src/rtl_playground/static/`). `npm test` runs Vitest. `npx vite-node scripts/gen-examples.ts` regenerates and validates the examples.
-- SystemVerilog fidelity (needs Verilator 5 and Yosys, e.g. under `~/eda/env/bin`; set `RTLP_EDA_ENV` if elsewhere): `npx vite-node scripts/verify-sv.ts [example.rtlp ...]` lints, builds and runs every example's exported testbench under Verilator and checks it synthesizes under Yosys.
+- SystemVerilog fidelity (uses a local Verilator 5 + Yosys if found, via PATH or `RTLP_EDA_ENV`, else the pinned tools image through Docker; `RTLP_VERIFY_TOOLS=native|docker` forces one): `npx vite-node scripts/verify-sv.ts [example.rtlp ...]` lints, builds and runs every example's exported testbench under Verilator and checks it synthesizes under Yosys.
 - Host: `uv run rtl-playground --no-browser --port 8765` from the repo root; `uv run --dev pytest` for the host tests.
 - Dev loop: run the host on 8765, then `npm run dev` in `frontend/` (Vite proxies `/api`).
 - Browser smoke test (needs `npx playwright install chromium` once): `node frontend/scripts/smoke.mjs <screenshot dir> "http://127.0.0.1:8765/#token=<token from host output>"`.

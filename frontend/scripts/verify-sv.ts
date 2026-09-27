@@ -11,8 +11,11 @@
 //
 // Run with: npx vite-node scripts/verify-sv.ts [example.rtlp ...]   (default: every examples/*.rtlp)
 //
-// Needs Verilator 5 and Yosys on PATH, or under ~/eda/env/bin (this machine's install). If a compiler isn't
-// found next to Verilator (CPATH/LIBRARY_PATH/LD_LIBRARY_PATH), set RTLP_EDA_ENV to the toolchain's prefix.
+// Tools: Verilator 5 and Yosys from the local machine when Verilator is found (on PATH, or under RTLP_EDA_ENV,
+// a conda-style prefix whose include/lib the Verilated build needs), otherwise from the app's pinned tools
+// image through Docker (the image named in src/rtl_playground/toolchain.py; RTLP_IMAGE overrides it).
+// RTLP_VERIFY_TOOLS=native|docker forces one. In Docker mode every command, including running the built
+// testbench, happens in the container with the work directory mounted at /work.
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
@@ -26,6 +29,19 @@ import { emitTestbench, testableModules } from '../src/hdl/testbench';
 const EDA = process.env.RTLP_EDA_ENV ?? join(homedir(), 'eda', 'env');
 const VERILATOR = existsSync(join(EDA, 'bin', 'verilator')) ? join(EDA, 'bin', 'verilator') : 'verilator';
 const YOSYS = existsSync(join(EDA, 'bin', 'yosys')) ? join(EDA, 'bin', 'yosys') : 'yosys';
+
+function onPath(cmd: string): boolean { try { execFileSync(cmd, ['--version'], { stdio: 'ignore', timeout: 20_000 }); return true; } catch { return false; } }
+/** The tools image the app itself uses, so this check and the Project view never drift apart. */
+function toolsImage(): string {
+  if (process.env.RTLP_IMAGE) return process.env.RTLP_IMAGE;
+  const py = readFileSync(resolve(__dirname, '../../src/rtl_playground/toolchain.py'), 'utf8');
+  const name = /^TOOLS_IMAGE = "([^"]+)"/m.exec(py)?.[1], tag = /^TOOLS_IMAGE_TAG = "([^"]+)"/m.exec(py)?.[1];
+  if (!name || !tag) throw new Error('cannot read TOOLS_IMAGE/TOOLS_IMAGE_TAG from toolchain.py; set RTLP_IMAGE');
+  return `${name}:${tag}`;
+}
+const MODE = process.env.RTLP_VERIFY_TOOLS ?? (existsSync(VERILATOR) || onPath('verilator') ? 'native' : 'docker');
+const IMAGE = MODE === 'docker' ? toolsImage() : '';
+let WORK_ROOT = ''; // set in main(); mounted at /work in Docker mode
 const ENV = {
   ...process.env,
   PATH: `${join(EDA, 'bin')}:${process.env.PATH ?? ''}`,
@@ -35,7 +51,14 @@ const ENV = {
 };
 
 function run(cmd: string, args: string[], cwd: string): { ok: boolean; out: string } {
-  try { const out = execFileSync(cmd, args, { cwd, env: ENV, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000 }); return { ok: true, out }; }
+  if (MODE === 'docker') {
+    const inBox = (p: string) => p.split(WORK_ROOT).join('/work'); // also inside Yosys's -p script text
+    const user = process.getuid && process.getgid ? ['--user', `${process.getuid()}:${process.getgid()}`] : [];
+    args = ['run', '--rm', ...user, '-e', 'HOME=/tmp', '-v', `${WORK_ROOT}:/work`, '-w', inBox(cwd), IMAGE,
+      cmd === VERILATOR ? 'verilator' : cmd === YOSYS ? 'yosys' : inBox(cmd), ...args.map(inBox)];
+    cmd = 'docker';
+  }
+  try { const out = execFileSync(cmd, args, { cwd, env: ENV, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 300_000 }); return { ok: true, out }; }
   catch (e) { const err = e as { stdout?: string; stderr?: string; message: string }; return { ok: false, out: `${err.stdout ?? ''}${err.stderr ?? ''}${err.message}` }; }
 }
 
@@ -89,9 +112,10 @@ function main(): void {
   const files = (argFiles.length ? argFiles : readdirSync(examplesDir).filter(f => f.endsWith('.rtlp')))
     .map(f => (f.includes('/') ? resolve(f) : join(examplesDir, f)));
 
-  if (!existsSync(join(EDA, 'bin', 'verilator')) && VERILATOR === 'verilator') console.log(`(RTLP_EDA_ENV toolchain not found at ${EDA}; relying on PATH)`);
+  console.log(MODE === 'docker' ? `Tools: Docker image ${IMAGE}` : `Tools: ${VERILATOR} and ${YOSYS}`);
 
   const tmp = mkdtempSync(join(tmpdir(), 'rtlp-sv-'));
+  WORK_ROOT = tmp;
   console.log(`Working directory: ${tmp}`);
   for (const f of files) {
     const dir = join(tmp, f.replace(/^.*\//, '').replace(/\.rtlp$/, ''));

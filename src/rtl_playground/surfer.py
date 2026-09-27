@@ -7,12 +7,13 @@ Surfer (https://surfer-project.org, EUPL-1.2, gitlab.com/surfer-project/surfer) 
 publish a versioned release of its web build: its GitLab CI deploys the wasm build
 continuously to https://app.surfer-project.org/ (GitLab Pages, from ``main``) and keeps
 it as a CI job artifact that is pruned once a newer pipeline on ``main`` supersedes it as
-"latest successful". So instead of pinning a release tag, this module pins one such job's
-artifact by URL and verifies it by sha256; ``SURFER_VERSION`` records which commit that
-job built. If GitLab eventually prunes that job (the download then 404s), bump
-SURFER_URL/SURFER_SHA256/SURFER_VERSION to a newer ``wasm_artifacts`` job from
-https://gitlab.com/surfer-project/surfer/-/pipelines?ref=main&status=success (open the
-pipeline, find the ``wasm_artifacts`` job, and its "download artifacts" link is the URL).
+"latest successful". So this module pins one such job's artifact by sha256, mirrored
+unmodified (with Surfer's EUPL-1.2 licence) on this project's ``tools-2026.09`` GitHub
+release, which is tried first; the GitLab job URL is the fallback. ``SURFER_VERSION``
+records which commit that job built. To re-pin, take a newer ``wasm_artifacts`` job from
+https://gitlab.com/surfer-project/surfer/-/pipelines?ref=main&status=success (its
+"download artifacts" link), upload the zip and licence to a GitHub release, and update
+SURFER_URLS/SURFER_SHA256/SURFER_VERSION/SURFER_SIZE_MB.
 
 Surfer's own build bakes an absolute ``/dist/`` public URL into ``index.html`` (its
 GitLab Pages deploy step patches this the same way we do here, since Pages also serves it
@@ -34,15 +35,19 @@ from pathlib import Path
 from typing import Any, Callable
 
 # Pinned to the `wasm_artifacts` job of pipeline 2872490384 (commit c9db19e7, 2026-09-22),
-# the latest successful build of `main` at the time this was written. See the module
-# docstring for how to re-pin this if it stops resolving.
-SURFER_URL = "https://gitlab.com/surfer-project/surfer/-/jobs/16662751065/artifacts/download"
+# the latest successful build of `main` at the time this was written. Tried in order: our
+# mirror (does not expire), then the GitLab CI artifact (expires when GitLab prunes it).
+SURFER_URLS = (
+    "https://github.com/mrg327/rtl-playground/releases/download/tools-2026.09/surfer-web-c9db19e7.zip",
+    "https://gitlab.com/surfer-project/surfer/-/jobs/16662751065/artifacts/download",
+)
+SURFER_URL = SURFER_URLS[0]
 SURFER_SHA256 = "330e1404d7ffcfdf5a0e4ca29a03b53bd92e453bb62e2cab1c4a8e3176ef505a"
 SURFER_VERSION = "surfer@c9db19e7 (main, 2026-09-22)"
-SURFER_SIZE_MB = 15  # rounded up from the ~14.6 MiB download, for the install prompt
+SURFER_SIZE_MB = 6  # the zip is 5.3 MB, for the install prompt
 
 DOWNLOAD_TIMEOUT_S = 180.0
-# The real download is ~15 MB; refuse anything wildly larger so a redirected or
+# The real download is ~5 MB; refuse anything wildly larger so a redirected or
 # compromised URL cannot fill the disk before the sha256 check runs.
 MAX_DOWNLOAD_BYTES = 128 * 1024 * 1024
 CACHE_SUBDIR = "surfer-web"
@@ -171,6 +176,36 @@ def _find_build_root(extracted: Path) -> Path:
 # --------------------------------------------------------------------------- #
 
 
+def _download_verified(url: str, path: Path, expected_sha256: str, opener: Callable[..., Any],
+                       log: Callable[[str], None]) -> int:
+    """Download ``url`` into ``path`` and check its sha256; returns the size in bytes."""
+    log(f"Downloading Surfer ({SURFER_SIZE_MB} MB) from {url}\n")
+    hasher = sha256()
+    total = 0
+    try:
+        with path.open("wb") as out, opener(
+            urllib.request.Request(url, headers={"User-Agent": "rtl-playground"}),
+            timeout=DOWNLOAD_TIMEOUT_S,
+        ) as resp:
+            while True:
+                chunk = resp.read(256 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_DOWNLOAD_BYTES:
+                    raise SurferError("download exceeded the expected size; refusing to continue")
+                hasher.update(chunk)
+                out.write(chunk)
+    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        raise SurferError(f"cannot download Surfer from {url}: {exc}") from exc
+    digest = hasher.hexdigest()
+    if digest != expected_sha256:
+        raise SurferError(
+            f"{url} does not match the pinned checksum (got {digest}, expected {expected_sha256})"
+        )
+    return total
+
+
 def install(
     log: Callable[[str], None] = lambda _text: None,
     *,
@@ -183,7 +218,7 @@ def install(
     """Download the pinned build, verify it, and install it into the cache.
 
     Runs synchronously (see the API route for why this is a plain endpoint, not a job):
-    the download is ~15 MB, finishes in a few seconds even on a slow connection, and
+    the download is ~5 MB, finishes in a few seconds even on a slow connection, and
     tying it to the single-job-at-a-time project job manager would make it contend with,
     or be blocked by, an unrelated synthesis or test run.
 
@@ -192,39 +227,26 @@ def install(
     as default-argument values so that tests (and a future re-pin) can override the
     module attributes without needing every caller to pass them through explicitly.
     """
-    url = url if url is not None else SURFER_URL
+    urls = [url] if url is not None else [u for u in (SURFER_URL, *SURFER_URLS) if u]
+    urls = list(dict.fromkeys(urls))  # SURFER_URL may be overridden (tests) or equal the first mirror
     expected_sha256 = expected_sha256 if expected_sha256 is not None else SURFER_SHA256
     version = version if version is not None else SURFER_VERSION
     dest = dest or surfer_dir()
     opener = opener or urllib.request.urlopen
-    log(f"Downloading Surfer ({SURFER_SIZE_MB} MB) from {url}\n")
     fd, tmp_name = tempfile.mkstemp(prefix="rtlp-surfer-", suffix=".zip")
+    os.close(fd)
     tmp_path = Path(tmp_name)
     try:
-        hasher = sha256()
-        total = 0
-        try:
-            with os.fdopen(fd, "wb") as out, opener(
-                urllib.request.Request(url, headers={"User-Agent": "rtl-playground"}),
-                timeout=DOWNLOAD_TIMEOUT_S,
-            ) as resp:
-                while True:
-                    chunk = resp.read(256 * 1024)
-                    if not chunk:
-                        break
-                    total += len(chunk)
-                    if total > MAX_DOWNLOAD_BYTES:
-                        raise SurferError("download exceeded the expected size; refusing to continue")
-                    hasher.update(chunk)
-                    out.write(chunk)
-        except (urllib.error.URLError, OSError, TimeoutError) as exc:
-            raise SurferError(f"cannot download Surfer: {exc}") from exc
-
-        digest = hasher.hexdigest()
-        if digest != expected_sha256:
-            raise SurferError(
-                f"downloaded file does not match the pinned checksum (got {digest}, expected {expected_sha256})"
-            )
+        errors: list[str] = []
+        for candidate in urls:
+            try:
+                total = _download_verified(candidate, tmp_path, expected_sha256, opener, log)
+                break
+            except SurferError as exc:
+                errors.append(str(exc))
+                log(f"{exc}\n")
+        else:
+            raise SurferError(errors[-1] if len(errors) == 1 else "; ".join(errors))
         log(f"Verified sha256 ({total // 1024} KiB)\n")
 
         parent = dest.parent
@@ -259,6 +281,7 @@ __all__ = [
     "SURFER_SHA256",
     "SURFER_SIZE_MB",
     "SURFER_URL",
+    "SURFER_URLS",
     "SURFER_VERSION",
     "SurferError",
     "cache_root",

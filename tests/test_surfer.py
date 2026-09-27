@@ -346,3 +346,30 @@ def test_surfer_install_reports_checksum_mismatch(
     assert status == 502
     assert "checksum" in data["error"]
     assert not dest.exists()
+
+
+def test_install_falls_back_from_the_mirror_to_gitlab(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import urllib.error
+
+    zip_bytes = _make_zip({"index.html": INDEX_HTML.encode()})
+    monkeypatch.setattr(surfer_mod, "SURFER_SHA256", sha256(zip_bytes).hexdigest())
+    tried: list[str] = []
+
+    def opener(req, **_kwargs):  # noqa: ANN001
+        tried.append(req.full_url)
+        if "github.com" in req.full_url:
+            raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+        return _FakeResponse(zip_bytes)
+
+    logs: list[str] = []
+    surfer_mod.install(logs.append, dest=tmp_path / "surfer-web", opener=opener)
+    assert tried == list(surfer_mod.SURFER_URLS)
+    assert "github.com" in tried[0] and "gitlab.com" in tried[1]
+    assert any("404" in line for line in logs)
+    assert surfer_mod.installed_version(tmp_path / "surfer-web") == surfer_mod.SURFER_VERSION
+
+
+def test_install_reports_every_failed_url(tmp_path: Path) -> None:
+    with pytest.raises(surfer_mod.SurferError) as info:
+        surfer_mod.install(dest=tmp_path / "surfer-web", opener=_fake_opener(b"not the pinned zip"))
+    assert "github.com" in str(info.value) and "gitlab.com" in str(info.value)

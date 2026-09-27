@@ -878,7 +878,7 @@ class PlaygroundHandler(SimpleHTTPRequestHandler):
         return 200, surfer.describe()
 
     def api_surfer_install(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
-        # Synchronous, not a JobManager job: the download is ~15 MB and takes a few seconds,
+        # Synchronous, not a JobManager job: the download is ~5 MB and takes a few seconds,
         # and routing it through the single-job-at-a-time project job manager would make it
         # contend with (or be blocked by) an unrelated synthesis or test run, for no benefit
         # since there is nothing project-scoped or cancellable worth a log stream here.

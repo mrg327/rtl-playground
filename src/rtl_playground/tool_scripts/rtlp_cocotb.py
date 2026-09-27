@@ -5,7 +5,10 @@ Usage: python rtlp_cocotb.py SPEC.json
 SPEC holds paths as the tools see them:
   {"sources": [...], "includes": [...], "toplevel": "top", "module": "test_top",
    "testDir": "<folder holding the test module>", "runDir": "<working folder; waves land here>",
-   "buildDir": "...", "resultsXml": "...", "waves": true, "parameters": {}}
+   "buildDir": "...", "resultsXml": "...", "waves": true, "wavesFormat": "fst", "parameters": {}}
+
+``wavesFormat`` is "fst" (default, small, needs Surfer/GTKWave) or "vcd" (OpenSTA's
+``read_vcd`` only reads VCD, so the power job asks for this one).
 
 Copied into the project's build/ folder by the RTL Playground host so the
 same file works natively and inside the tool image.
@@ -27,7 +30,7 @@ def main() -> int:
     runner = get_runner("verilator")
     build_args = ["-Wno-fatal", "-Wno-WIDTH"]
     if spec.get("waves"):
-        build_args += ["--trace-fst", "--trace-structs"]
+        build_args += ["--trace", "--trace-structs"] if spec.get("wavesFormat") == "vcd" else ["--trace-fst", "--trace-structs"]
     runner.build(
         sources=spec["sources"],
         includes=spec.get("includes") or [],

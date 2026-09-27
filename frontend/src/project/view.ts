@@ -40,6 +40,7 @@ export class ProjectView {
         <button id="pj-synth" title="Yosys synthesis through OpenROAD-flow-scripts">Synthesize</button>
         <select id="pj-stage" title="Run the physical-design flow up to this stage"></select>
         <button id="pj-flow" class="primary" title="Floorplan, place, clock tree, route and sign-off">Implement</button>
+        <button id="pj-power" title="Simulate a test with a VCD dump and report power from its switching activity">Power</button>
         <button id="pj-cancel" title="Stop the running job" disabled>Stop</button>
       </div>
       <aside class="pj-files"><h2>Files <button class="tool" id="pj-new" title="New file">+</button><button class="tool" id="pj-reload" title="Reload the file list">⟳</button></h2><div id="pj-tree" class="pj-tree"></div></aside>
@@ -57,7 +58,7 @@ export class ProjectView {
         <div class="panel" id="pj-waves"></div>
         <div class="panel" id="pj-reports"></div>
       </section>`;
-    for (const id of ['pj-select', 'pj-newproj', 'pj-tools', 'pj-lint', 'pj-test', 'pj-synth', 'pj-stage', 'pj-flow', 'pj-cancel', 'pj-new', 'pj-reload', 'pj-tree', 'pj-path', 'pj-save', 'pj-editor', 'pj-form', 'pj-status', 'pj-log', 'pj-problems', 'pj-tests', 'pj-waves', 'pj-reports']) this.el[id] = root.querySelector('#' + id)!;
+    for (const id of ['pj-select', 'pj-newproj', 'pj-tools', 'pj-lint', 'pj-test', 'pj-synth', 'pj-stage', 'pj-flow', 'pj-power', 'pj-cancel', 'pj-new', 'pj-reload', 'pj-tree', 'pj-path', 'pj-save', 'pj-editor', 'pj-form', 'pj-status', 'pj-log', 'pj-problems', 'pj-tests', 'pj-waves', 'pj-reports']) this.el[id] = root.querySelector('#' + id)!;
     this.editor = new CodeEditor(this.el['pj-editor'], { onChange: () => this.markDirty(), onSave: () => void this.save() });
     this.waves = new WavesPanel(this.el['pj-waves'], host, toast);
     this.bind();
@@ -72,7 +73,7 @@ export class ProjectView {
     const { jobs } = await this.host.jobs();
     const running = jobs.find(j => j.status === 'running' || j.status === 'queued');
     for (const j of jobs) if (j.project === this.projectPath && j.status !== 'running') this.lastByKind[j.kind] = j;
-    if (running) this.follow(running); else this.renderResults();
+    if (running) this.follow(running); else { this.setBusy(false); this.renderResults(); }
   }
 
   async loadTools(refresh: boolean): Promise<void> {
@@ -295,6 +296,8 @@ export class ProjectView {
     const can = !!this.tools?.available && (this.tools.mode !== 'docker' || this.tools.imageReady) && !!this.project && !busy;
     for (const id of ['pj-lint', 'pj-test', 'pj-synth', 'pj-flow', 'pj-stage']) (this.el[id] as HTMLButtonElement).disabled = !can;
     (this.el['pj-test'] as HTMLButtonElement).disabled = !can || !this.project?.tests.length;
+    const flowDone = this.lastByKind.flow?.status === 'passed' && this.lastByKind.flow.result?.stage === 'finish';
+    (this.el['pj-power'] as HTMLButtonElement).disabled = !can || !this.project?.tests.length || !flowDone;
     (this.el['pj-cancel'] as HTMLButtonElement).disabled = !busy;
   }
 
@@ -332,14 +335,14 @@ export class ProjectView {
   }
 
   finished(j: JobInfo): void {
-    this.setBusy(false);
     if (j.project === this.projectPath) this.lastByKind[j.kind] = j;
+    this.setBusy(false);
     this.renderResults();
-    const tab: Tab | null = j.kind === 'lint' ? 'problems' : j.kind === 'test' ? 'tests' : (j.kind === 'synth' || j.kind === 'flow') && j.status === 'passed' ? 'reports' : null;
+    const tab: Tab | null = j.kind === 'lint' ? 'problems' : j.kind === 'test' ? 'tests' : (j.kind === 'synth' || j.kind === 'flow' || j.kind === 'power') && j.status === 'passed' ? 'reports' : null;
     if (tab && j.status !== 'error' && (j.kind !== 'test' || j.result.suites)) { this.tab = tab; this.syncTabs(); }
     const verdict = j.status === 'passed' ? 'finished' : j.status;
     this.toast(`${j.title}: ${verdict}${j.error ? ` (${j.error})` : ''}`);
-    if (j.kind === 'synth' || j.kind === 'flow') void this.loadTree();
+    if (j.kind === 'synth' || j.kind === 'flow' || j.kind === 'power') void this.loadTree();
     if (j.kind === 'setup') void this.loadTools(true);
   }
 
@@ -374,7 +377,7 @@ export class ProjectView {
     renderLintReport(this.el['pj-problems'], this.lastByKind.lint, open);
     renderTestReport(this.el['pj-tests'], this.lastByKind.test, this.project, p => this.host.rawUrl(this.rel(p)), p => this.openWaves(this.rel(p)));
     const flow = [this.lastByKind.flow, this.lastByKind.synth].filter(Boolean).sort((a, b) => (b!.ended ?? 0) - (a!.ended ?? 0))[0];
-    renderFlowReport(this.el['pj-reports'], flow, this.project, p => this.host.rawUrl(this.rel(p)), open);
+    renderFlowReport(this.el['pj-reports'], flow, this.lastByKind.power, this.project, p => this.host.rawUrl(this.rel(p)), open);
     this.applyDiagnostics();
   }
 
@@ -398,6 +401,7 @@ export class ProjectView {
     this.el['pj-test'].onclick = () => void this.run('test');
     this.el['pj-synth'].onclick = () => void this.run('synth');
     this.el['pj-flow'].onclick = () => void this.run('flow');
+    this.el['pj-power'].onclick = () => void this.run('power');
     this.el['pj-cancel'].onclick = () => void this.cancel();
     this.el['pj-save'].onclick = () => void this.save();
     this.el['pj-new'].onclick = () => void this.newFile();

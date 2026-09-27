@@ -14,7 +14,7 @@ export interface ProjectInfo {
   flow: { platform: string; coreUtilization: number; placeDensity: number; extra: Record<string, string> };
   platform: PlatformInfo;
 }
-export type JobKind = 'lint' | 'test' | 'synth' | 'flow' | 'setup';
+export type JobKind = 'lint' | 'test' | 'synth' | 'flow' | 'power' | 'setup';
 // ---- Surfer, the waveform viewer embedded in the Waves tab (DESIGN.md section 7) ----
 export interface SurferInfo { installed: boolean; version: string | null; sizeMB: number }
 export type JobStatus = 'queued' | 'running' | 'passed' | 'failed' | 'cancelled' | 'error';

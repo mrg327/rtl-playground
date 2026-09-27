@@ -21,7 +21,7 @@ from rtl_playground.jobs import Command, HostStep, Job, JobFailed, Step
 from rtl_playground.project import BUILD_DIR, Project, generate_orfs_config, generate_sdc, write_if_changed
 from rtl_playground.toolchain import Toolchain
 
-JOB_KINDS = ("lint", "test", "synth", "flow")
+JOB_KINDS = ("lint", "test", "synth", "flow", "power")
 # ORFS make targets in flow order; "flow" runs to the last one.
 FLOW_STAGES = ("synth", "floorplan", "place", "cts", "route", "finish")
 
@@ -38,6 +38,8 @@ def build_steps(kind: str, project: Project, tc: Toolchain, root: Path, options:
         if stage not in FLOW_STAGES:
             raise ValueError(f"stage must be one of {', '.join(FLOW_STAGES)}")
         return f"Implement {project.top} to {stage} ({project.platform.name})", flow_steps(project, tc, root, stage)
+    if kind == "power":
+        return power_steps(project, tc, root, options)
     raise ValueError(f"unknown job kind {kind!r}; expected one of {', '.join(JOB_KINDS)}")
 
 
@@ -298,5 +300,119 @@ def clean_flow(project: Project) -> None:
         shutil.rmtree(work / sub, ignore_errors=True)
 
 
+# --------------------------------------------------------------------------- #
+# Power from simulation activity
+# --------------------------------------------------------------------------- #
+
+_FINAL_OUTPUTS = ("6_final.odb", "6_final.sdc", "6_final.spef")
+
+
+def _require_finished_flow(project: Project, work: Path) -> None:
+    results = reports.orfs_dirs(project, work)["results"]
+    missing = [n for n in _FINAL_OUTPUTS if not (results / n).is_file()]
+    if missing:
+        raise JobFailed(f"the flow has not produced {', '.join(missing)} yet; run Implement first")
+
+
+def power_steps(project: Project, tc: Toolchain, root: Path, options: dict[str, Any]) -> tuple[str, list[Step]]:
+    """Simulate one test with a VCD dump, then feed its switching activity to OpenROAD's
+    report_power on the finished flow's final design (DESIGN.md section 13)."""
+    paths = orfs_paths(project)
+    _require_finished_flow(project, paths["work"])
+    if not project.tests:
+        raise JobFailed(f"no tests defined in {project.root.name}/rtlp-project.json; "
+                        "power needs a cocotb test to drive the design")
+    wanted = options.get("test")
+    test = next((t for t in project.tests if t["name"] == wanted), None) if wanted else project.tests[0]
+    if test is None:
+        raise JobFailed(f"no test named {wanted!r}")
+    pdir = project.build / "power" / test["name"]
+    power_script = project.build / "power" / "rtlp_power.tcl"
+
+    def prepare(job: Job) -> None:
+        files = _require_sources(project)
+        _install_runner_script(project.build)
+        pdir.mkdir(parents=True, exist_ok=True)
+        results = pdir / "results.xml"
+        for stale in (results, *pdir.glob("dump.*")):
+            stale.unlink(missing_ok=True)
+        spec = {
+            "sources": [tc.tool_path(f, root) for f in files],
+            "includes": [tc.tool_path(project.root / d, root) for d in project.include_dirs],
+            "toplevel": test["toplevel"],
+            "module": test["module"],
+            "testDir": tc.tool_path(project.root / test["dir"], root),
+            "runDir": tc.tool_path(pdir, root),
+            "buildDir": tc.tool_path(pdir / "sim_build", root),
+            "resultsXml": tc.tool_path(results, root),
+            "waves": True,
+            "wavesFormat": "vcd",  # OpenSTA's read_vcd reads VCD, not the FST the test job dumps
+            "parameters": test["parameters"],
+        }
+        write_if_changed(pdir / "spec.json", json.dumps(spec, indent=2) + "\n")
+
+    def after_test(job: Job) -> None:
+        suite = parse_cocotb_results(pdir / "results.xml")
+        job.result = {"suite": suite}
+        if not (pdir / "dump.vcd").is_file():
+            raise JobFailed(f"{test['name']} produced no VCD; the simulation likely crashed before finishing (see the log)")
+
+    def generate(job: Job) -> None:
+        # config.mk/constraint.sdc from the finished Implement job, rewritten in case the
+        # project changed since (write_if_changed leaves the mtime alone when it did not).
+        if project.constraints["sdc"]:
+            src = project.root / project.constraints["sdc"]
+            write_if_changed(paths["sdc"], src.read_text(encoding="utf-8"))
+        else:
+            write_if_changed(paths["sdc"], generate_sdc(project))
+        write_if_changed(paths["config"], generate_orfs_config(project, lambda p: tc.tool_path(p, root), paths["sdc"]))
+        script = importlib.resources.files("rtl_playground") / "tool_scripts" / "rtlp_power.tcl"
+        write_if_changed(power_script, script.read_text(encoding="utf-8"))
+
+    def collect_result(job: Job) -> None:
+        text, _ = job.read_log(0)
+        r = reports.collect_power(project, paths["work"], test["name"], _suite_sim_ns(job.result.get("suite")), text)
+        suite = job.result.get("suite") or {}
+        failed_cases = [c for c in suite.get("cases", []) if c["status"] != "passed"]
+        if failed_cases:
+            r["warnings"] = [*r["warnings"], f"{test['name']} failed {len(failed_cases)} of "
+                             f"{len(suite['cases'])} checks; the activity above still reflects what ran."]
+        r["suite"] = suite
+        vcd = pdir / "dump.vcd"
+        r["waves"] = vcd.relative_to(project.root).as_posix() if vcd.is_file() else None
+        job.result = r
+
+    make = [
+        "make", "-C", tc.flow_home,
+        f"DESIGN_CONFIG={tc.tool_path(paths['config'], root)}",
+        f"WORK_HOME={tc.tool_path(paths['work'], root)}",
+        f"RUN_SCRIPT={tc.tool_path(power_script, root)}",
+        "run",
+    ]
+    steps: list[Step] = [
+        HostStep("Prepare the test bench", prepare),
+        Command(f"Test {test['name']} with a VCD dump", [
+            tc.python, tc.tool_path(project.build / "rtlp_cocotb.py", root), tc.tool_path(pdir / "spec.json", root),
+        ], project.root, env={"PYTHONDONTWRITEBYTECODE": "1"}, ok_codes=None),
+        HostStep("Read the test result", after_test),
+        HostStep("Generate config.mk, constraints and the power script", generate),
+        Command("OpenROAD: report_power from simulated activity", make, project.root, env={
+            "RTLP_VCD": tc.tool_path(pdir / "dump.vcd", root),
+            "RTLP_VCD_SCOPE": test["toplevel"],
+        }),
+        HostStep("Read the power report", collect_result, always=True),
+    ]
+    return f"Power for {test['name']} ({project.platform.name})", steps
+
+
+def _suite_sim_ns(suite: dict[str, Any] | None) -> float | None:
+    """Total simulated time over the run: cocotb reports each case's own duration, and all
+    cases in a suite run back to back in the one VCD dump the power job takes activity from."""
+    if not suite or not suite.get("cases"):
+        return None
+    times = [c["simTimeNs"] for c in suite["cases"] if c["simTimeNs"] is not None]
+    return sum(times) if times else None
+
+
 __all__ = ["FLOW_STAGES", "JOB_KINDS", "build_steps", "clean_flow", "parse_cocotb_results",
-           "parse_verilator_diagnostics"]
+           "parse_verilator_diagnostics", "power_steps"]

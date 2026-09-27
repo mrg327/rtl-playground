@@ -136,3 +136,19 @@ body.present .blk text.v{font-size:17px}
 body.present .wv{font-size:14px}
 body.present .canvas .hint{display:none}
 @media (max-width:900px){#app{grid-template-columns:180px minmax(0,1fr) 220px}}
+/* Schematic / Project mode switch; the project view itself is styled in project/project.css. */
+header .modes{display:inline-flex;border:1px solid var(--line);border-radius:5px;overflow:hidden;margin-right:10px;flex:none}
+header .modes button{border:0;border-radius:0;padding:4px 10px}
+header .modes button+button{border-left:1px solid var(--line)}
+header .modes button.active{background:var(--ink);color:var(--paper)}
+#app .project{display:none}
+#app.project-mode>aside,#app.project-mode>main,#app.project-mode>.bottom{display:none}
+#app.project-mode header>:not(h1):not(.modes):not(#cmd):not(#help){display:none}
+#app.project-mode header .modes{margin-right:auto}
+#app.project-mode .project{grid-column:1/4;grid-row:2/4;display:grid;min-height:0;min-width:0;
+  grid-template-columns:220px minmax(0,1fr) 270px;grid-template-rows:auto minmax(0,1fr) minmax(160px,38%)}
+
+/* The header holds every simulation control; below ~1600px tighten it, and never let a control become unreachable. */
+header{overflow-x:auto;scrollbar-width:thin}
+header .file{min-width:60px}
+@media (max-width:1600px){header h1{display:none}header{gap:4px}header button{padding:5px 7px}header .sep{margin:0 2px}#cycle{min-width:70px}}

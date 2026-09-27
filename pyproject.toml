@@ -25,6 +25,8 @@ dependencies = []
 [project.optional-dependencies]
 hdl = ["yowasp-yosys>=0.50"]
 desktop = ["pywebview>=5"]
+# Runs the tool image without Docker or admin rights (lab machines).
+udocker = ["udocker>=1.3"]
 
 [project.scripts]
 rtl-playground = "rtl_playground.cli:main"

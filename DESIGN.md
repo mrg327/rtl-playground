@@ -233,7 +233,52 @@ Each phase ends in something usable in class.
 
 **Phase 4, course polish.** URL sharing and load-by-URL commands. Update banner. Optional X-until-reset. Headless test runner for later autograding. Multi-clock and CDC blocks if the timing unit needs them.
 
-## 13. Decisions taken on 2026-09-15
+## 13. Projects and the open-source flow (added 2026-09-26)
+
+The course's final project (sample: a block-matching motion estimator, 16x16 blocks in a 31x31 window, 520 MHz, "HDL to GDS in 14nm") is architecture-scale Verilog verified against a reference model and taken through synthesis, place and route, extraction, STA and power. Nobody draws that as boxes, and the TS simulator cannot hold its memories or its million-cycle testbenches. So the tool grows a second mode beside the schematic editor: a **project workspace** that drives real open-source tools and brings their results back into the browser. This reverses two v1 non-goals (autograding stays out; "replacing Vivado/ModelSim" stays out, but running open tools does not replace them, it complements them).
+
+```
+Browser                                   Python host (stdlib)                 Toolchain (one pinned image)
+  Project view: file tree, SV editor        rtlp-project.json loader             Verilator 5 + cocotb 2
+  Run: lint / test / synth / flow  ---->    SDC + ORFS config generator  ---->   Yosys, OpenROAD (ORFS), OpenSTA
+  Log console (polled)             <----    job manager (one job at a time)      KLayout
+  Reports: slack, area, power, cells        report parsers (ORFS metrics JSON)   PDKs: asap7 (default), sky130hd,
+  Layout PNG, waveforms (FST)               artifacts under build/                     nangate45, gf180, ihp-sg13g2
+```
+
+**Decisions taken on 2026-09-26**
+1. **Tools run in one pinned Docker image**, launched by the host with the project folder mounted at `/work`. Native tools on `PATH` (a lab machine, a developer) are used instead when all are present. No class server, no GitHub Actions. The image is versioned with the playground release so a semester pins both at once.
+2. **The flow is OpenROAD-flow-scripts (ORFS)**, not LibreLane, because ASAP7 is built into ORFS and a design is just a `config.mk` plus a `constraint.sdc`. ORFS ships `asap7`, `sky130hd/hs`, `nangate45`, `gf180` and `ihp-sg13g2`.
+3. **Default platform ASAP7**, the only open kit near 14nm and the only one where 520 MHz is realistic. Its numbers are predictive (no silicon), and every report page says so. sky130hd is the "real fab" option. FreePDK15 has no open flow.
+4. **Verification is cocotb on Verilator**: Python testbenches with a reference model and scoreboard, which is exactly the proposal's verification plan. Waves are FST. The TS simulator stays for drawn schematics.
+5. **Build order: tool runner first.** Project workspace, lint, cocotb tests, ORFS synthesis and full flow, report dashboard, layout image. Then schematic SystemVerilog export, hierarchy and memories so drawn modules can join a project. Then critical-path overlay and power from simulation activity.
+
+**Project file.** `rtlp-project.json` at the project root. JSON rather than TOML because the host is stdlib-only on Python 3.10.
+
+```jsonc
+{
+  "version": 1,
+  "name": "motion_estimator",
+  "top": "me_top",
+  "sources": ["rtl/*.sv"],                 // globs, relative, in order
+  "includeDirs": [],
+  "tests": [{ "name": "unit", "toplevel": "me_top", "module": "test_me", "dir": "tb" }],
+  "constraints": {
+    "clock": { "port": "clk", "periodNs": 1.923, "uncertaintyNs": 0.2 },
+    "inputDelayNs": 0.5, "outputDelayNs": 0.5,
+    "sdc": null                             // a hand-written SDC path overrides generation
+  },
+  "flow": { "platform": "asap7", "coreUtilization": 40, "placeDensity": 0.6, "extra": {} }
+}
+```
+
+The constraints block is the proposal's constraint list, one field per line, so students see the connection. The host turns it into SDC in the platform's time unit (ASAP7 libraries are in picoseconds, the others in nanoseconds). Everything generated or produced lives under `build/` in the project, so a student can open the same files in the real tools.
+
+**Status (2026-09-26).** Built: project file and SDC/`config.mk` generation, toolchain detection (native, Docker, podman, udocker), the job runner, lint/test/synth/flow recipes, the report parser, the Project view (file tree, CodeMirror editor with lint markers, constraints form, log, problems, tests, reports with the OpenROAD layout images), the `sad_pe` starter template, and the tools image Dockerfile. Verified on the `sad_pe` template: Verilator lint and cocotb tests natively, and the full ASAP7 flow in the ORFS image under udocker (78 s, WNS +0.83 ns at 520 MHz). Not yet done: publishing the tools image, power from simulation activity (VCD/SAIF into OpenSTA), an embedded waveform viewer for FST, and the schematic side (SV export, hierarchy, memories).
+
+**Jobs.** One job runs at a time (place and route wants most of a laptop's memory). A job is a list of commands; its log streams into the browser by polling with a byte offset, and is also saved to `build/jobs/<id>.log`. Cancel kills the process (or the container). Finished jobs report a structured result: test pass/fail per case, or the flow's metrics.
+
+## 14. Decisions taken on 2026-09-15
 
 1. **Name.** RTL Playground. Package `rtl-playground`, launch `uvx rtl-playground@latest`.
 2. **Reset.** Synchronous, active-high. The emitter and the default register block use `always_ff @(posedge clk) if (rst)`. Other styles stay a per-block parameter, not a design-wide switch, in v1.

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "sad_pe",
+  "top": "sad_pe",
+  "sources": ["rtl/*.sv"],
+  "tests": [
+    { "name": "sad_pe", "module": "test_sad_pe", "toplevel": "sad_pe", "dir": "tb" }
+  ],
+  "constraints": {
+    "clock": { "port": "clk", "periodNs": 1.923, "uncertaintyNs": 0.2, "holdUncertaintyNs": 0.0 },
+    "inputDelayNs": 0.5,
+    "outputDelayNs": 0.5
+  },
+  "flow": { "platform": "asap7", "coreUtilization": 40, "placeDensity": 0.6 }
+}

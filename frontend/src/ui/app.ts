@@ -10,6 +10,7 @@ import { WaveformView, toVCD, toWaveJSON, type WaveData, type WaveSignal } from 
 import { runAll, type TestResult } from '../sim/tests';
 import { Host, download, upload, openFromHash } from '../host/api';
 import { pinKey } from '../model/netlist';
+import type { ProjectView } from '../project/view';
 
 const EXAMPLES: Record<string, string> = import.meta.glob('../../../examples/*.rtlp', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 const esc = (t: string) => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
@@ -26,13 +27,15 @@ export class App {
   clipboard: { blocks: Block[]; wires: Wire[]; notes: Note[] } | null = null;
   commands: Command[] = [];
   tab: 'wave' | 'tests' = 'wave';
+  mode: 'schematic' | 'project' = 'schematic';
+  project: ProjectView | null = null;
   testResults: TestResult[] | null = null;
   el: Record<string, HTMLElement> = {};
 
   constructor(public root: HTMLElement) {
     root.innerHTML = `
       <header>
-        <h1>RTL Playground</h1><span class="file" id="file">untitled</span>
+        <h1>RTL Playground</h1><span class="modes" role="tablist"><button id="m-sch" class="active" role="tab" title="Draw and simulate a schematic">Schematic</button><button id="m-proj" role="tab" title="SystemVerilog project: lint, cocotb tests, synthesis, place and route">Project</button></span><span class="file" id="file">untitled</span>
         <button id="new" title="New design">New</button><button id="open">Open…</button><button id="save" title="Ctrl+S">Save</button><button id="examples">Examples…</button>
         <span class="sep"></span>
         <button id="undo" title="Ctrl+Z">↶</button><button id="redo" title="Ctrl+Y">↷</button>
@@ -58,7 +61,8 @@ export class App {
           <button class="tool" id="wzoomout">−</button><button class="tool" id="wzoomin">+</button><button class="tool" id="wfit">Fit</button><button class="tool" id="wvcd">Export VCD</button><button class="tool" id="wjson">WaveDrom</button><button class="tool" id="wclear">Clear history</button><button class="tool" id="wtog">Hide</button></div>
         <div class="panel active" id="wave"></div>
         <div class="panel tests" id="tests"></div>
-      </section>`;
+      </section>
+      <div class="project" id="project"></div>`;
     for (const id of ['file', 'new', 'open', 'save', 'examples', 'undo', 'redo', 'back', 'step', 'run', 'speed', 'rst', 'poweron', 'cycle', 'vmode', 'dim', 'fit', 'present', 'cmd', 'help', 'pal', 'canvas', 'insp', 'problems', 'bottom', 'wave', 'tests', 'wzoomout', 'wzoomin', 'wfit', 'wvcd', 'wjson', 'wclear', 'wtog']) this.el[id] = root.querySelector('#' + id)!;
     const cv = this.el.canvas;
     this.canvas = new Canvas(cv, this.store, { onEditBlock: id => this.inlineEdit(id), onEditNote: id => this.editNote(id) });
@@ -79,9 +83,28 @@ export class App {
     this.boot();
   }
 
+  async setMode(mode: 'schematic' | 'project'): Promise<void> {
+    this.mode = mode;
+    this.root.classList.toggle('project-mode', mode === 'project');
+    this.root.querySelector('#m-sch')!.classList.toggle('active', mode === 'schematic');
+    this.root.querySelector('#m-proj')!.classList.toggle('active', mode === 'project');
+    if (mode === 'project') {
+      if (!this.project) {
+        // CodeMirror lives in the project chunk, so the schematic editor does not pay for it.
+        const { ProjectView } = await import('../project/view');
+        this.project ??= new ProjectView(this.root.querySelector('#project')!, this.host, m => this.toast(m));
+      }
+      void this.project.show();
+      document.title = 'Project – RTL Playground';
+    } else { this.canvas.render(); this.refresh('sim'); }
+    try { localStorage.setItem('rtlp.mode', mode); } catch { /* storage may be unavailable */ }
+  }
+
   async boot(): Promise<void> {
     const ok = await this.host.connect();
     if (ok) { const open = openFromHash(); if (open) await this.openPath(open); this.toast(`Connected to local host · ${this.host.info!.root}`); }
+    let saved: string | null = null; try { saved = localStorage.getItem('rtlp.mode'); } catch { /* ignore */ }
+    if (saved === 'project' || /(^|[#&])mode=project/.test(location.hash)) void this.setMode('project');
     else this.toast('No local host found: files will download to your browser instead.');
   }
 
@@ -320,6 +343,8 @@ export class App {
 
   bindToolbar(): void {
     const s = this.store; const e = this.el;
+    this.root.querySelector<HTMLButtonElement>('#m-sch')!.onclick = () => void this.setMode('schematic');
+    this.root.querySelector<HTMLButtonElement>('#m-proj')!.onclick = () => void this.setMode('project');
     e.new.onclick = () => this.newDesign(); e.open.onclick = () => this.open(); e.save.onclick = () => this.save(); e.examples.onclick = () => this.openExample();
     e.undo.onclick = () => s.undo(); e.redo.onclick = () => s.redo();
     e.back.onclick = () => this.back(); e.step.onclick = () => this.step(); e.run.onclick = () => this.toggleRun();
@@ -338,6 +363,7 @@ export class App {
   }
   bindKeys(): void {
     document.addEventListener('keydown', e => {
+      if (this.mode === 'project') return;
       if (isEditable(e.target)) return;
       if (document.querySelector('.modal-bg')) return;
       const k = e.key; const ctrl = e.ctrlKey || e.metaKey;

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import sys
 import threading
@@ -12,8 +13,9 @@ from pathlib import Path
 
 import pytest
 
+from rtl_playground import flows
 from rtl_playground.jobs import BusyError, Command, HostStep, Job, JobManager
-from rtl_playground.project import PROJECT_FILE
+from rtl_playground.project import PROJECT_FILE, load_project
 from rtl_playground.server import make_server
 from rtl_playground.toolchain import Toolchain
 
@@ -253,6 +255,132 @@ def test_udocker_wrap_and_setup(tmp_path: Path):
     argv, _ = docker.wrap(["verilator", "--version"], root=tmp_path, cwd=tmp_path, name="rtlp-j1")
     assert argv[:4] == ["/usr/bin/docker", "run", "--rm", "--init"] and "--name" in argv and argv[-3:] == ["img:1", "verilator", "--version"]
     assert docker.setup_commands() == [["/usr/bin/docker", "pull", "img:1"]]
+
+
+# --------------------------------------------------------------------------- #
+# Power job: cocotb with a VCD dump, then OpenROAD's report_power, with fake tools
+# --------------------------------------------------------------------------- #
+
+FAKE_COCOTB_RUNNER = f"""#!{PY}
+import json, sys
+from pathlib import Path
+spec = json.load(open(sys.argv[2]))
+assert spec["wavesFormat"] == "vcd"
+run_dir = Path(spec["runDir"])
+run_dir.mkdir(parents=True, exist_ok=True)
+(run_dir / "dump.vcd").write_text("$enddefinitions $end\\n")
+Path(spec["resultsXml"]).write_text('''<testsuites><testsuite>
+<testcase classname="test_pw" name="case1" time="0.01">
+<properties><property name="sim_time_duration" value="1000.0"/><property name="sim_time_unit" value="ns"/></properties>
+</testcase></testsuite></testsuites>''')
+sys.exit(0)
+"""
+
+FAKE_MAKE = f"""#!{PY}
+import os, sys
+print("RTLP_VCD=" + os.environ.get("RTLP_VCD", ""))
+print("RTLP_VCD_SCOPE=" + os.environ.get("RTLP_VCD_SCOPE", ""))
+print("RTLP-ANNOTATION-BEGIN")
+print("vcd            10")
+print("unannotated    90")
+print("RTLP-ANNOTATION-END")
+print("RTLP-POWER-JSON-BEGIN")
+print('{{"Total": {{"internal": 1e-05, "switching": 2e-05, "leakage": 1e-09, "total": 3e-05}}}}')
+print("RTLP-POWER-JSON-END")
+sys.exit(0)
+"""
+
+
+def _write_fake(path: Path, text: str) -> None:
+    path.write_text(text)
+    path.chmod(path.stat().st_mode | stat.S_IEXEC)
+
+
+@pytest.fixture
+def power_project(tmp_path: Path) -> Path:
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _write_fake(bindir / "make", FAKE_MAKE)
+    proj = tmp_path / "pw"
+    (proj / "rtl").mkdir(parents=True)
+    (proj / "tb").mkdir()
+    (proj / "rtl" / "pw_top.sv").write_text("module pw_top; endmodule\n")
+    (proj / "tb" / "test_pw.py").write_text("")
+    (proj / PROJECT_FILE).write_text(json.dumps({
+        "top": "pw_top", "sources": ["rtl/*.sv"],
+        "tests": [{"name": "pw", "module": "test_pw", "toplevel": "pw_top", "dir": "tb"}],
+        "constraints": {"clock": {"periodNs": 2.0}},
+        "flow": {"platform": "asap7"},
+    }))
+    final = proj / "build" / "orfs" / "results" / "asap7" / "pw_top" / "base"
+    final.mkdir(parents=True)
+    for name in ("6_final.odb", "6_final.sdc", "6_final.spef"):
+        (final / name).write_text("")
+    return tmp_path
+
+
+def run_power_job(tmp_path: Path, options: dict | None = None, cocotb_ok: bool = True) -> Job:
+    tc = native(tmp_path)
+    tc.python = str(tmp_path / "bin" / "cocotb-runner")
+    _write_fake(Path(tc.python), FAKE_COCOTB_RUNNER if cocotb_ok else "#!/bin/sh\nexit 1\n")
+    project = load_project(tmp_path / "pw")
+    title, steps = flows.build_steps("power", project, tc, tmp_path, options or {})
+    job = Job(id="p1", kind="power", title=title, project="pw", root=tmp_path, steps=steps,
+              log_path=project.build / "jobs" / "p1.log")
+    mgr = JobManager(lambda: tc)
+    mgr.submit(job)
+    return wait(job)
+
+
+def test_power_job_reports_simulated_power_and_energy(power_project: Path):
+    job = run_power_job(power_project)
+    assert job.status == "passed", job.error
+    r = job.result
+    assert r["test"] == "pw"
+    assert r["power"] == {"totalW": pytest.approx(3e-5), "internalW": pytest.approx(1e-5),
+                          "switchingW": pytest.approx(2e-5), "leakageW": pytest.approx(1e-9),
+                          "activity": "simulation: pw (10% of pins annotated)"}
+    assert r["simTimeNs"] == pytest.approx(1000.0)
+    assert r["energyJ"] == pytest.approx(3e-5 * 1000.0 * 1e-9)
+    assert r["energyPerCycleJ"] == pytest.approx(3e-5 * 2.0 * 1e-9)
+    assert r["annotatedPins"] == 10 and r["annotatedPinsTotal"] == 100
+    assert r["waves"] == "build/power/pw/dump.vcd"
+    assert r["warnings"] == []
+    text, _ = job.read_log(0)
+    assert "RTLP_VCD_SCOPE=pw_top" in text
+    assert "RTLP_VCD=" in text and "dump.vcd" in text
+
+
+def test_power_job_requires_a_finished_flow(power_project: Path):
+    shutil.rmtree(power_project / "pw" / "build" / "orfs")
+    tc = native(power_project)
+    project = load_project(power_project / "pw")
+    with pytest.raises(Exception) as exc:
+        flows.build_steps("power", project, tc, power_project, {})
+    assert "run Implement first" in str(exc.value)
+
+
+def test_power_job_requires_a_test(power_project: Path):
+    data = json.loads((power_project / "pw" / PROJECT_FILE).read_text())
+    data["tests"] = []
+    (power_project / "pw" / PROJECT_FILE).write_text(json.dumps(data))
+    tc = native(power_project)
+    project = load_project(power_project / "pw")
+    with pytest.raises(Exception) as exc:
+        flows.build_steps("power", project, tc, power_project, {})
+    assert "no tests defined" in str(exc.value)
+
+
+def test_power_job_fails_cleanly_without_a_vcd(power_project: Path):
+    job = run_power_job(power_project, cocotb_ok=False)
+    assert job.status == "failed"
+    assert "no VCD" in job.error
+
+
+def test_power_job_via_http_rejects_an_unfinished_flow(api: Client):
+    status, data = api.request("POST", "/api/jobs", {"project": "me", "kind": "power"}, token=TOKEN)
+    assert status == 400
+    assert "run Implement first" in data["error"]
 
 
 def test_jobs_refused_until_image_is_downloaded(api: Client, project_root: Path):

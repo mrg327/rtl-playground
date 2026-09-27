@@ -22,6 +22,18 @@ export interface FlowResult {
   warnings: string[];
 }
 
+/** Result of the "power" job (reports.collect_power): simulated-activity power and the
+ * energy it implies over one test, alongside the default-activity numbers for comparison. */
+export interface PowerResult {
+  test: string; clockPeriodNs: number | null; simTimeNs: number | null;
+  power: { totalW: number | null; internalW: number | null; switchingW: number | null; leakageW: number | null; activity: string } | null;
+  energyJ: number | null; energyPerCycleJ: number | null;
+  defaultPower: FlowResult['power'];
+  annotatedPins: number | null; annotatedPinsTotal: number | null;
+  waves: string | null;
+  warnings: string[];
+}
+
 function none(el: HTMLElement, text: string): void { el.innerHTML = `<p class="pj-empty">${text}</p>`; }
 
 export function renderLintReport(el: HTMLElement, job: JobInfo | undefined, open: (file: string, line?: number) => void): void {
@@ -54,8 +66,9 @@ export function renderTestReport(el: HTMLElement, job: JobInfo | undefined, proj
 function fmtTime(ns: number): string { return ns >= 1e6 ? `${(ns / 1e6).toFixed(2)} ms` : ns >= 1e3 ? `${(ns / 1e3).toFixed(2)} µs` : `${ns.toFixed(0)} ns`; }
 const n = (v: number | null | undefined, digits = 3) => v == null ? '–' : Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 0 }) : v.toFixed(digits).replace(/\.?0+$/, '') || '0';
 function watts(v: number | null | undefined): string { if (v == null) return '–'; const a = Math.abs(v); return a >= 1 ? `${n(v)} W` : a >= 1e-3 ? `${n(v * 1e3)} mW` : a >= 1e-6 ? `${n(v * 1e6)} µW` : `${n(v * 1e9)} nW`; }
+function joules(v: number | null | undefined): string { if (v == null) return '–'; const a = Math.abs(v); return a >= 1 ? `${n(v)} J` : a >= 1e-3 ? `${n(v * 1e3)} mJ` : a >= 1e-6 ? `${n(v * 1e6)} µJ` : a >= 1e-9 ? `${n(v * 1e9)} nJ` : `${n(v * 1e12)} pJ`; }
 
-export function renderFlowReport(el: HTMLElement, job: JobInfo | undefined, project: ProjectInfo | null, raw: (p: string) => string, open: (file: string) => void): void {
+export function renderFlowReport(el: HTMLElement, job: JobInfo | undefined, power: JobInfo | undefined, project: ProjectInfo | null, raw: (p: string) => string, open: (file: string) => void): void {
   if (!job) return none(el, `Run <b>Synthesize</b> or <b>Implement</b> to take <code>${esc(project?.top ?? 'the design')}</code> through OpenROAD on ${esc(project?.platform.title ?? 'the chosen platform')}. Timing, area, power and the layout appear here.`);
   const r = job.result as Partial<FlowResult>;
   if (!r.stage) return none(el, `${esc(job.title)} ${job.status}${job.error ? `: ${esc(job.error)}` : ''}. See the log.`);
@@ -72,10 +85,20 @@ export function renderFlowReport(el: HTMLElement, job: JobInfo | undefined, proj
   h += tile('Hold slack', t?.holdWnsNs != null ? `${n(t.holdWnsNs)} ns` : '–', '', t?.holdWnsNs != null ? (t.holdWnsNs >= 0 ? 'good' : 'bad') : '');
   h += tile('Cell area', a?.designUm2 != null ? `${n(a.designUm2, 2)} µm²` : '–', a?.utilization != null ? `${n(a.utilization * 100, 1)}% utilization` : '');
   h += tile('Cells', a?.cells != null ? n(a.cells, 0) : '–', a?.sequential != null ? `${n(a.sequential, 0)} flops` : '');
-  h += tile('Power', watts(p?.totalW), p ? `int ${watts(p.internalW)} · sw ${watts(p.switchingW)} · leak ${watts(p.leakageW)}` : '');
-  if (p) h += tile('Energy / cycle', p.totalW != null && r.clockPeriodNs ? `${n(p.totalW * r.clockPeriodNs * 1e3, 3)} pJ` : '–', esc(p.activity));
+  h += tile('Power (default activity)', watts(p?.totalW), p ? `int ${watts(p.internalW)} · sw ${watts(p.switchingW)} · leak ${watts(p.leakageW)}` : '');
+  if (p) h += tile('Energy / cycle (default activity)', p.totalW != null && r.clockPeriodNs ? `${n(p.totalW * r.clockPeriodNs * 1e3, 3)} pJ` : '–', esc(p.activity));
   if (rt) h += tile('Wirelength', rt.wirelengthUm != null ? `${n(rt.wirelengthUm, 0)} µm` : '–', rt.drcErrors != null ? `${rt.drcErrors} DRC errors` : '', rt.drcErrors ? 'bad' : '');
+  const pr = power?.result as Partial<PowerResult> | undefined;
+  if (pr?.power) {
+    const sp = pr.power;
+    const wave = pr.waves ? ` · <a class="pj-wave" href="${raw(pr.waves)}" download title="Open in Surfer (surfer-project.org) or GTKWave">waves ↓</a>` : '';
+    h += tile('Power (simulated activity)', watts(sp.totalW), `int ${watts(sp.internalW)} · sw ${watts(sp.switchingW)} · leak ${watts(sp.leakageW)}${wave}`);
+    h += tile('Energy over test', joules(pr.energyJ), `${esc(sp.activity)}${pr.simTimeNs != null ? ` over ${fmtTime(pr.simTimeNs)}` : ''}${pr.energyPerCycleJ != null ? ` · ${joules(pr.energyPerCycleJ)}/cycle` : ''}`);
+  } else if (power && power.status !== 'running' && power.status !== 'queued') {
+    h += tile('Power (simulated activity)', '–', power.error ?? 'See the log.', 'bad');
+  }
   h += `</div>`;
+  for (const w of pr?.warnings ?? []) h += `<div class="item warning">${esc(w)}</div>`;
   const imgs = r.images?.length ? r.images : r.layoutPng ? [{ label: 'Layout', path: r.layoutPng }] : [];
   if (imgs.length) {
     const src = (p: string) => `${raw(p)}&t=${job.ended ?? 0}`;

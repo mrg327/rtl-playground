@@ -217,4 +217,87 @@ def _latest_stage(metrics: dict[str, Any], name: str) -> str:
     return head if head in STAGE_ORDER else "the last stage"
 
 
-__all__ = ["collect", "load_metrics", "orfs_dirs", "pick", "step_times"]
+# --------------------------------------------------------------------------- #
+# Power from simulation activity (rtlp_power.tcl, run by flows.power_steps)
+# --------------------------------------------------------------------------- #
+
+_ANNOTATION_BLOCK = re.compile(r"RTLP-ANNOTATION-BEGIN\n(.*?)\nRTLP-ANNOTATION-END", re.S)
+_ANNOTATION_LINE = re.compile(r"^\s*(\w+)\s+(\d+)\s*$", re.M)
+_POWER_JSON_BLOCK = re.compile(r"RTLP-POWER-JSON-BEGIN\n(.*?)\nRTLP-POWER-JSON-END", re.S)
+
+
+def parse_power_annotation(log: str) -> tuple[int, int] | None:
+    """(annotated, total) pin counts from report_activity_annotation's summary in the job log.
+
+    OpenSTA prints one ``<category> <count>`` line per source; every category other than
+    "unannotated" came from the VCD (RTL signal names only partly match the gate netlist,
+    so most pins end up unannotated on a small design)."""
+    m = _ANNOTATION_BLOCK.search(log)
+    if not m:
+        return None
+    counts = {name: int(n) for name, n in _ANNOTATION_LINE.findall(m.group(1))}
+    total = sum(counts.values())
+    if total == 0:
+        return None
+    return total - counts.get("unannotated", 0), total
+
+
+def parse_power_json(log: str) -> dict[str, float] | None:
+    """{totalW, internalW, switchingW, leakageW} from report_power -format json's Total row."""
+    m = _POWER_JSON_BLOCK.search(log)
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(1))
+    except ValueError:
+        return None
+    total = data.get("Total")
+    if not isinstance(total, dict):
+        return None
+    return {"totalW": total.get("total"), "internalW": total.get("internal"),
+            "switchingW": total.get("switching"), "leakageW": total.get("leakage")}
+
+
+def _fmt_pct(pct: float) -> str:
+    return f"{pct:.1f}" if pct < 10 else f"{pct:.0f}"
+
+
+def collect_power(project: Project, work: Path, test_name: str, sim_time_ns: float | None, log: str) -> dict[str, Any]:
+    """The power job's result: power from the test's simulated activity, the energy that
+    implies over the test and per cycle, and the default-activity numbers (from the last
+    finished flow run, when its metrics are still on disk) for comparison."""
+    period = project.constraints["clock"]["periodNs"]
+    watts = parse_power_json(log)
+    annotation = parse_power_annotation(log)
+    warnings: list[str] = []
+    power = None
+    if watts is not None:
+        pct = 100.0 * annotation[0] / annotation[1] if annotation and annotation[1] else None
+        activity = f"simulation: {test_name}" + (f" ({_fmt_pct(pct)}% of pins annotated)" if pct is not None else "")
+        power = {**watts, "activity": activity}
+    else:
+        warnings.append("OpenROAD did not report power; see the log.")
+    default_power = collect(project, work, "finish").get("power")
+    energy_j = None
+    energy_per_cycle_j = None
+    if power and power.get("totalW") is not None:
+        if sim_time_ns is not None:
+            energy_j = power["totalW"] * sim_time_ns * 1e-9
+        if period:
+            energy_per_cycle_j = power["totalW"] * period * 1e-9
+    return {
+        "test": test_name,
+        "clockPeriodNs": period,
+        "simTimeNs": sim_time_ns,
+        "power": power,
+        "energyJ": energy_j,
+        "energyPerCycleJ": energy_per_cycle_j,
+        "defaultPower": default_power,
+        "annotatedPins": annotation[0] if annotation else None,
+        "annotatedPinsTotal": annotation[1] if annotation else None,
+        "warnings": warnings,
+    }
+
+
+__all__ = ["collect", "collect_power", "load_metrics", "orfs_dirs", "parse_power_annotation", "parse_power_json",
+           "pick", "step_times"]

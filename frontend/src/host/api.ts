@@ -14,7 +14,7 @@ export interface ProjectInfo {
   flow: { platform: string; coreUtilization: number; placeDensity: number; extra: Record<string, string> };
   platform: PlatformInfo;
 }
-export type JobKind = 'lint' | 'test' | 'synth' | 'flow' | 'setup';
+export type JobKind = 'lint' | 'test' | 'synth' | 'flow' | 'power' | 'setup';
 export type JobStatus = 'queued' | 'running' | 'passed' | 'failed' | 'cancelled' | 'error';
 export interface JobInfo {
   id: string; kind: JobKind; title: string; project: string; status: JobStatus; step: string | null; stepIndex: number; steps: string[];

@@ -13,6 +13,9 @@ from rtl_playground.project import PROJECT_FILE, load_project
 
 FIXTURE = Path(__file__).parent / "fixtures" / "orfs_sad_pe"
 TEMPLATE = Path(__file__).parents[1] / "src" / "rtl_playground" / "templates" / "sad_pe" / PROJECT_FILE
+# Real rtlp_power.tcl output: sad_pe on asap7, a VCD from the sad_pe cocotb suite (56590ns of
+# simulation), OpenROAD 26Q3-657 via udocker. See the power job's manual verification notes.
+POWER_LOG = (Path(__file__).parent / "fixtures" / "power_sad_pe.log").read_text()
 
 
 @pytest.fixture
@@ -66,3 +69,55 @@ def test_collect_with_nothing_warns(tmp_path: Path):
 def test_later_stage_wins():
     m = {"floorplan__timing__setup__ws": -5.0, "finish__timing__setup__ws": 1.0, "cts__timing__setup__ws": -1.0}
     assert reports.pick(m, "timing__setup__ws") == 1.0
+
+
+# --------------------------------------------------------------------------- #
+# Power from simulation activity
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_power_json_from_real_log():
+    watts = reports.parse_power_json(POWER_LOG)
+    assert watts == {"totalW": pytest.approx(1.34e-4), "internalW": pytest.approx(8.60e-5),
+                      "switchingW": pytest.approx(4.79e-5), "leakageW": pytest.approx(2.08e-8)}
+
+
+def test_parse_power_json_missing_is_none():
+    assert reports.parse_power_json("no markers here") is None
+    assert reports.parse_power_json("RTLP-POWER-JSON-BEGIN\nnot json\nRTLP-POWER-JSON-END") is None
+
+
+def test_parse_power_annotation_from_real_log():
+    # 36 of the design's 992 pins matched a VCD signal by name; the rest (mostly internal
+    # gates from synthesis) keep ORFS's default activity, per report_activity_annotation.
+    assert reports.parse_power_annotation(POWER_LOG) == (36, 992)
+
+
+def test_parse_power_annotation_missing_is_none():
+    assert reports.parse_power_annotation("no markers here") is None
+
+
+def test_collect_power_computes_energy_and_compares_to_default(project):
+    r = reports.collect_power(project, project.build / "orfs", "sad_pe", 56590.0, POWER_LOG)
+    assert r["test"] == "sad_pe"
+    assert r["clockPeriodNs"] == pytest.approx(1.923)
+    assert r["power"]["totalW"] == pytest.approx(1.34e-4)
+    assert r["power"]["activity"] == "simulation: sad_pe (3.6% of pins annotated)"
+    assert r["annotatedPins"] == 36 and r["annotatedPinsTotal"] == 992
+    # energy = average power (from the simulated activity) x simulated time
+    assert r["energyJ"] == pytest.approx(1.34e-4 * 56590.0 * 1e-9)
+    assert r["energyPerCycleJ"] == pytest.approx(1.34e-4 * 1.923 * 1e-9)
+    # the default-activity power from the last finished flow run, for comparison
+    assert r["defaultPower"]["totalW"] == pytest.approx(5.52497e-05)
+    assert r["defaultPower"]["activity"] == "default switching activity (not from simulation)"
+    assert r["warnings"] == []
+
+
+def test_collect_power_without_a_report_warns(project):
+    r = reports.collect_power(project, project.build / "orfs", "sad_pe", 100.0, "OpenROAD crashed before reporting power\n")
+    assert r["power"] is None
+    assert r["energyJ"] is None and r["energyPerCycleJ"] is None
+    assert r["annotatedPins"] is None
+    assert "did not report power" in r["warnings"][0]
+    # the default-activity comparison is still there even when the simulated run failed
+    assert r["defaultPower"]["totalW"] == pytest.approx(5.52497e-05)

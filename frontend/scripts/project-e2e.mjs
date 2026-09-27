@@ -11,13 +11,17 @@ const waitJob = async (label, title, timeoutMs) => {
   await page.waitForFunction(want => { const t = document.querySelector('#pj-status')?.textContent ?? ''; return t.startsWith(want) && / · (passed|failed|error|cancelled) · /.test(t); }, title, { timeout: timeoutMs });
   const status = await page.textContent('#pj-status'); console.log(label, '→', status); return status;
 };
+const out = {};
 await page.goto(url); await page.waitForTimeout(600);
 await page.click('#m-proj'); await page.waitForSelector('#pj-select');
 await page.waitForTimeout(800);
 await page.screenshot({ path: `${S}/p1-empty.png` });
+if (await page.$('#pj-setup')) { // first run on this machine: download the tools image through the app
+  await page.click('#pj-setup'); out.setup = await waitJob('setup', 'Download', 3_600_000);
+  await page.waitForFunction(() => !document.querySelector('#pj-setup'), null, { timeout: 60_000 });
+}
 await page.click('#pj-newproj'); await page.waitForTimeout(1500);
 await page.screenshot({ path: `${S}/p2-project.png` });
-const out = {};
 await page.click('#pj-lint'); out.lint = await waitJob('lint', 'Lint', 120_000);
 await page.screenshot({ path: `${S}/p3-lint.png` });
 await page.click('#pj-test'); out.test = await waitJob('test', 'Test', 300_000);

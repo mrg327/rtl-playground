@@ -2,10 +2,11 @@ import { defOf, type ParamDef, num } from '../model/library';
 import { fmt, toBig } from '../model/values';
 import type { Store } from './store';
 import type { Block } from '../model/types';
+import { memoryInfo, memoryRows } from './memview';
 
 const esc = (t: string) => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 
-export function renderInspector(el: HTMLElement, store: Store, actions: { del(): void; rotate(): void; flip(): void }): void {
+export function renderInspector(el: HTMLElement, store: Store, actions: { del(): void; rotate(): void; flip(): void; loadMemFile?(id: string): void }): void {
   const m = store.module; const sel = store.sel;
   const blocks = m.blocks.filter(b => sel.blocks.has(b.id));
   if (blocks.length === 0 && sel.wires.size === 0 && sel.notes.size === 0) { el.innerHTML = `<p>Nothing selected. Click a block to inspect it, drag on empty space to select several.</p>`; return; }
@@ -27,10 +28,14 @@ export function renderInspector(el: HTMLElement, store: Store, actions: { del():
   if (d.help) h += `<p>${esc(d.help)}</p>`;
   const st = store.sim.frame.states.get(b.id) as { q?: bigint } | undefined;
   if (st && typeof st.q === 'bigint') h += `<p class="mono">Q = ${st.q} · ${fmt(st.q, num(b.params, 'width', num(b.params, 'len', 1)), 'hex')}h</p>`;
+  const memInfo = memoryInfo(b);
+  if (memInfo && !locked && actions.loadMemFile) h += `<div class="row"><button class="loadmem">Load .mem file…</button></div>`;
+  if (memInfo) h += renderMemoryTable(store, b, memInfo);
   h += `<label class="chk"><input type="checkbox" data-k="__trace" ${b.trace ? 'checked' : ''}> Show in waveform</label>`;
   h += `<div class="row"><button class="rot" title="R">Rotate</button><button class="flip" title="F">Flip</button><button class="del" ${locked ? 'disabled' : ''}>Delete</button></div>`;
   el.innerHTML = h;
   el.querySelector<HTMLButtonElement>('.del')!.onclick = actions.del; el.querySelector<HTMLButtonElement>('.rot')!.onclick = actions.rotate; el.querySelector<HTMLButtonElement>('.flip')!.onclick = actions.flip;
+  el.querySelector<HTMLButtonElement>('.loadmem')?.addEventListener('click', () => actions.loadMemFile!(b.id));
   for (const input of el.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-k]')) {
     const k = input.dataset.k!;
     const apply = (undoable: boolean) => {
@@ -61,6 +66,36 @@ function paramField(p: ParamDef, b: Block, locked: boolean): string {
       return `<label>${p.label} (0 to ${(1n << BigInt(w)) - 1n})</label><input type="text" data-k="${p.key}" value="${esc(String(v ?? 0))}" ${dis}><p class="mono">bin ${fmt(bv, w, 'bin')} · hex ${fmt(bv, w, 'hex')}${w > 1 ? ` · signed ${fmt(bv, w, 'sdec')}` : ''}</p>`; }
     default: return `<label>${p.label}${p.help ? ` <span title="${esc(p.help)}">ⓘ</span>` : ''}</label><input type="text" data-k="${p.key}" value="${esc(String(v ?? ''))}" ${dis}>`;
   }
+}
+
+/** Hex table of a RAM/ROM/register-file block's contents (DESIGN.md section 4), following the time-travel
+ * cursor: the address read this cycle and the address written getting here are highlighted. Read-only; to
+ * change initial contents, edit the "Contents" field above (or load a .mem file) and Power-on, the same way
+ * editing a register's reset value only takes effect on the next power-on. */
+function renderMemoryTable(store: Store, b: Block, info: { width: number; depth: number }): string {
+  const notSimulating = store.sim.frames.length === 1;
+  return `<h3>Memory contents</h3><p class="mono">${info.depth} × ${info.width}-bit${notSimulating ? ' · edit "Contents" above, then Power-on to load it' : ''}</p><div class="memtable">${memoryTableRows(store, b, info)}</div>`;
+}
+function memoryTableRows(store: Store, b: Block, info: { width: number; depth: number }): string {
+  const rows = memoryRows(store.sim, b);
+  if (!rows) return '';
+  const addrDigits = memAddrHexDigits(info.depth);
+  return `<table>${rows.map(r => `<tr class="${r.read ? 'memread' : ''}${r.write ? ' memwrite' : ''}"><td>${r.addr.toString(16).padStart(addrDigits, '0')}</td><td>${fmt(r.value, info.width, 'hex')}</td></tr>`).join('')}</table>`;
+}
+function memAddrHexDigits(depth: number): number { return Math.max(1, Math.ceil(Math.log2(Math.max(2, depth)) / 4)); }
+
+/** Cheap counterpart to renderInspector for plain simulation events ('sim': a clock edge, a cursor scrub, a
+ * run tick) — rebuilding the whole inspector every tick would be wasteful (and, at up to ~30 Hz during "Run",
+ * visibly slow for a large memory's table), so app.ts calls this instead. It only patches the memory table's
+ * rows in place when a single ram/rom/regfile block is selected and the inspector is already showing it;
+ * everything else in the inspector (params, the Q= line, buttons) does not depend on the live cursor. */
+export function refreshMemoryTable(el: HTMLElement, store: Store): void {
+  const table = el.querySelector<HTMLElement>('.memtable');
+  if (!table) return;
+  const sel = store.sel; if (sel.blocks.size !== 1) return;
+  const b = store.module.blocks.find(x => sel.blocks.has(x.id)); if (!b) return;
+  const info = memoryInfo(b); if (!info) return;
+  table.innerHTML = memoryTableRows(store, b, info);
 }
 
 function coerce(p: ParamDef, raw: unknown, b: Block): unknown {

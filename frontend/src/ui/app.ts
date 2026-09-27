@@ -5,7 +5,7 @@ import { serialize, deserialize } from '../model/serialize';
 import { Store, emptySel } from './store';
 import { Canvas, isEditable, type ValueMode } from './canvas';
 import { renderPalette } from './palette';
-import { renderInspector } from './inspector';
+import { renderInspector, refreshMemoryTable } from './inspector';
 import { WaveformView, toVCD, toWaveJSON, type WaveData, type WaveSignal } from './waveform';
 import { runAll, type TestResult } from '../sim/tests';
 import { Host, download, upload, openFromHash } from '../host/api';
@@ -14,6 +14,8 @@ import type { ProjectView } from '../project/view';
 import type { CodeEditor } from '../project/editor';
 import { emitDesign } from '../hdl/emit';
 import { emitTestbench, testableModules } from '../hdl/testbench';
+import { memoryInfo } from './memview';
+import { memFileToContents } from '../model/memfile';
 
 const EXAMPLES: Record<string, string> = import.meta.glob('../../../examples/*.rtlp', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 const esc = (t: string) => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
@@ -120,7 +122,8 @@ export class App {
     const s = this.store, sim = s.sim;
     if (what === 'load') { this.canvas.zoomFit(); this.testResults = null; }
     this.canvas.render();
-    if (what !== 'sim') renderInspector(this.el.insp, s, { del: () => this.deleteSelection(), rotate: () => this.rotate(), flip: () => this.flip() });
+    if (what !== 'sim') renderInspector(this.el.insp, s, { del: () => this.deleteSelection(), rotate: () => this.rotate(), flip: () => this.flip(), loadMemFile: id => void this.loadMemFile(id) });
+    else refreshMemoryTable(this.el.insp, s); // a memory's viewer follows the time-travel cursor without rebuilding the whole panel
     this.renderProblems();
     this.el.cycle.textContent = `cycle ${sim.cycle}${sim.live ? '' : ` / ${sim.lastCycle}`}`; this.el.cycle.classList.toggle('past', !sim.live);
     this.el.file.textContent = s.file ?? s.design.name; this.el.file.classList.toggle('dirty', s.dirty);
@@ -219,6 +222,31 @@ export class App {
     if (!fileName) return;
     const path = (pick.value ? `${pick.value}/` : '') + `rtl/${fileName}`;
     try { await this.host.write(path, text); this.toast(`Saved ${path}`); } catch (e) { this.toast(`Cannot save ${path}: ${(e as Error).message}`, true); }
+  }
+
+  // ---------- memory blocks (DESIGN.md section 4) ----------
+  async loadMemFile(id: string): Promise<void> {
+    const s = this.store; const b = s.module.blocks.find(x => x.id === id); if (!b) return;
+    const info = memoryInfo(b); if (!info) return;
+    let text: string;
+    if (this.host.available) {
+      let dir = '';
+      const pickPath = async (): Promise<string | null> => {
+        const { entries } = await this.host.list(dir);
+        const items = [...(dir ? [{ name: '..', type: 'dir' as const }] : []), ...entries.filter(e => e.type === 'dir'), ...entries.filter(e => e.type === 'file' && /\.mem$/i.test(e.name))];
+        const pick = await this.pickList(`Load .mem from ${this.host.info!.root}${dir ? '/' + dir : ''}`, items.map(e => ({ label: (e.type === 'dir' ? '📁 ' : '') + e.name, hint: '', value: e.name, dir: e.type === 'dir' })));
+        if (!pick) return null;
+        if (pick.dir) { dir = pick.value === '..' ? dir.split('/').slice(0, -1).join('/') : (dir ? dir + '/' : '') + pick.value; return pickPath(); }
+        return (dir ? dir + '/' : '') + pick.value;
+      };
+      const path = await pickPath(); if (!path) return;
+      try { text = (await this.host.read(path)).text; } catch (e) { this.toast(`Could not read ${path}: ${(e as Error).message}`, true); return; }
+    } else {
+      const f = await upload('.mem,.hex,text/plain'); if (!f) return; text = f.text;
+    }
+    const contents = memFileToContents(text, info.depth);
+    s.mutate(`Load ${id}.mem`, () => { b.params.contents = contents; });
+    this.toast(`Loaded ${info.depth} words into ${id}. Power-on to apply them.`);
   }
 
   // ---------- editing ----------

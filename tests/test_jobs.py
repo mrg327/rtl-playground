@@ -339,7 +339,7 @@ def test_power_job_reports_simulated_power_and_energy(power_project: Path):
     assert r["test"] == "pw"
     assert r["power"] == {"totalW": pytest.approx(3e-5), "internalW": pytest.approx(1e-5),
                           "switchingW": pytest.approx(2e-5), "leakageW": pytest.approx(1e-9),
-                          "activity": "simulation: pw (10% of pins annotated)"}
+                          "activity": "simulation: pw (10 of 100 pins from the VCD, the rest propagated)"}
     assert r["simTimeNs"] == pytest.approx(1000.0)
     assert r["energyJ"] == pytest.approx(3e-5 * 1000.0 * 1e-9)
     assert r["energyPerCycleJ"] == pytest.approx(3e-5 * 2.0 * 1e-9)

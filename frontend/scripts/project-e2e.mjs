@@ -33,6 +33,11 @@ await page.screenshot({ path: `${S}/p6-reports.png` });
 out.tiles = await page.$$eval('#pj-reports .pj-tile', ts => ts.map(t => t.innerText.replace(/\n/g, ' | ')));
 const shots = await page.$$('#pj-reports .pj-shots button');
 if (shots.length > 3) { await shots[4].click(); await page.waitForTimeout(500); await page.screenshot({ path: `${S}/p7-worstpath.png` }); }
+await page.click('#pj-power'); out.power = await waitJob('power', 'Power', 900_000);
+await page.waitForTimeout(800);
+await page.screenshot({ path: `${S}/p8-power.png`, fullPage: false });
+out.powerTiles = await page.$$eval('#pj-reports .pj-tile', ts => ts.map(t => t.innerText.replace(/\n/g, ' | ')).filter(t => /Power|Energy/.test(t)));
+out.powerWarnings = await page.$$eval('#pj-reports .item.warning', ws => ws.map(w => w.textContent));
 out.errors = errors;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();

@@ -258,8 +258,7 @@ def parse_power_json(log: str) -> dict[str, float] | None:
             "switchingW": total.get("switching"), "leakageW": total.get("leakage")}
 
 
-def _fmt_pct(pct: float) -> str:
-    return f"{pct:.1f}" if pct < 10 else f"{pct:.0f}"
+_VCD_PERIOD = re.compile(r"STA-1452\]\s*clock \S+ vcd period ([\d.]+) differs from SDC clock period ([\d.]+)")
 
 
 def collect_power(project: Project, work: Path, test_name: str, sim_time_ns: float | None, log: str) -> dict[str, Any]:
@@ -272,11 +271,19 @@ def collect_power(project: Project, work: Path, test_name: str, sim_time_ns: flo
     warnings: list[str] = []
     power = None
     if watts is not None:
-        pct = 100.0 * annotation[0] / annotation[1] if annotation and annotation[1] else None
-        activity = f"simulation: {test_name}" + (f" ({_fmt_pct(pct)}% of pins annotated)" if pct is not None else "")
+        # Only ports and register outputs keep their RTL names; OpenSTA propagates their activity through the gates.
+        activity = f"simulation: {test_name}" + (
+            f" ({annotation[0]} of {annotation[1]} pins from the VCD, the rest propagated)" if annotation else "")
         power = {**watts, "activity": activity}
     else:
         warnings.append("OpenROAD did not report power; see the log.")
+    mismatch = _VCD_PERIOD.search(log)
+    if mismatch:
+        scale = 1e-3 if project.platform.time_unit == "ps" else 1.0
+        tb_ns, sdc_ns = float(mismatch.group(1)) * scale, float(mismatch.group(2)) * scale
+        warnings.append(
+            f"The testbench clock ({tb_ns:g} ns) differs from the constrained clock ({sdc_ns:g} ns), so this activity and "
+            "energy do not describe the chip at speed. Drive the clock from RTLP_CLOCK_PERIOD_NS, as the sad_pe template does.")
     default_power = collect(project, work, "finish").get("power")
     energy_j = None
     energy_per_cycle_j = None
@@ -295,6 +302,7 @@ def collect_power(project: Project, work: Path, test_name: str, sim_time_ns: flo
         "defaultPower": default_power,
         "annotatedPins": annotation[0] if annotation else None,
         "annotatedPinsTotal": annotation[1] if annotation else None,
+        "clockMismatch": bool(mismatch),
         "warnings": warnings,
     }
 

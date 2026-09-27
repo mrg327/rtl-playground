@@ -221,7 +221,7 @@ export class ProjectView {
     const name = prompt('New file (relative to the project), e.g. rtl/sad_tree.sv or tb/test_sad.py'); if (!name) return;
     const path = this.rel(name.replace(/^\/+/, ''));
     const mod = name.replace(/^.*\//, '').replace(/\.\w+$/, '');
-    const text = /\.s?v$/.test(name) ? `module ${mod} (\n  input  logic clk,\n  input  logic rst\n);\n\nendmodule\n` : /\.py$/.test(name) ? `import cocotb\nfrom cocotb.clock import Clock\nfrom cocotb.triggers import RisingEdge\n\n\n@cocotb.test()\nasync def smoke(dut):\n    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())\n    dut.rst.value = 1\n    await RisingEdge(dut.clk)\n    dut.rst.value = 0\n    await RisingEdge(dut.clk)\n` : '';
+    const text = /\.s?v$/.test(name) ? `module ${mod} (\n  input  logic clk,\n  input  logic rst\n);\n\nendmodule\n` : /\.py$/.test(name) ? `import os\n\nimport cocotb\nfrom cocotb.clock import Clock\nfrom cocotb.triggers import RisingEdge\n\n# The constrained clock period, passed in by the app (keeps simulated power honest).\nPERIOD_PS = round(float(os.environ.get("RTLP_CLOCK_PERIOD_NS", "10")) * 1000)\n\n\n@cocotb.test()\nasync def smoke(dut):\n    cocotb.start_soon(Clock(dut.clk, PERIOD_PS, period_high=PERIOD_PS // 2, unit="ps").start())\n    dut.rst.value = 1\n    await RisingEdge(dut.clk)\n    dut.rst.value = 0\n    await RisingEdge(dut.clk)\n` : '';
     try { await this.host.write(path, text); await this.loadTree(); await this.openFile(path); } catch (e) { this.toast(`Cannot create ${name}: ${(e as Error).message}`); }
   }
 

@@ -1,5 +1,6 @@
 """cocotb tests for sad_pe: directed cases plus random blocks checked against a Python model."""
 
+import os
 import random
 
 import cocotb
@@ -7,6 +8,10 @@ from cocotb.clock import Clock
 from cocotb.triggers import ReadOnly, RisingEdge
 
 BLOCK = 16 * 16
+# The app passes the constrained clock period so simulated switching activity (and the
+# energy the Power job reports) matches the chip at speed. An odd period in ps cannot be
+# split into equal halves, hence period_high.
+PERIOD_PS = round(float(os.environ.get("RTLP_CLOCK_PERIOD_NS", "10")) * 1000)
 
 
 def sad_model(cur, ref):
@@ -15,7 +20,7 @@ def sad_model(cur, ref):
 
 
 async def reset(dut):
-    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    cocotb.start_soon(Clock(dut.clk, PERIOD_PS, period_high=PERIOD_PS // 2, unit="ps").start())
     dut.rst.value = 1
     dut.valid.value = 0
     dut.first.value = 0

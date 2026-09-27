@@ -78,8 +78,8 @@ def test_later_stage_wins():
 
 def test_parse_power_json_from_real_log():
     watts = reports.parse_power_json(POWER_LOG)
-    assert watts == {"totalW": pytest.approx(1.34e-4), "internalW": pytest.approx(8.60e-5),
-                      "switchingW": pytest.approx(4.79e-5), "leakageW": pytest.approx(2.08e-8)}
+    assert watts == {"totalW": pytest.approx(2.74e-4), "internalW": pytest.approx(1.70e-4),
+                      "switchingW": pytest.approx(1.04e-4), "leakageW": pytest.approx(2.08e-8)}
 
 
 def test_parse_power_json_missing_is_none():
@@ -88,8 +88,8 @@ def test_parse_power_json_missing_is_none():
 
 
 def test_parse_power_annotation_from_real_log():
-    # 36 of the design's 992 pins matched a VCD signal by name; the rest (mostly internal
-    # gates from synthesis) keep ORFS's default activity, per report_activity_annotation.
+    # 36 of the design's 992 pins matched a VCD signal by name: the ports and register outputs.
+    # OpenSTA propagates activity from those through the synthesized gates in between.
     assert reports.parse_power_annotation(POWER_LOG) == (36, 992)
 
 
@@ -98,15 +98,17 @@ def test_parse_power_annotation_missing_is_none():
 
 
 def test_collect_power_computes_energy_and_compares_to_default(project):
-    r = reports.collect_power(project, project.build / "orfs", "sad_pe", 56590.0, POWER_LOG)
+    # Recorded with the testbench clock at the constrained 1.923 ns (5659 cycles).
+    r = reports.collect_power(project, project.build / "orfs", "sad_pe", 10882.257, POWER_LOG)
     assert r["test"] == "sad_pe"
     assert r["clockPeriodNs"] == pytest.approx(1.923)
-    assert r["power"]["totalW"] == pytest.approx(1.34e-4)
-    assert r["power"]["activity"] == "simulation: sad_pe (3.6% of pins annotated)"
+    assert r["power"]["totalW"] == pytest.approx(2.74e-4)
+    assert r["power"]["activity"] == "simulation: sad_pe (36 of 992 pins from the VCD, the rest propagated)"
     assert r["annotatedPins"] == 36 and r["annotatedPinsTotal"] == 992
     # energy = average power (from the simulated activity) x simulated time
-    assert r["energyJ"] == pytest.approx(1.34e-4 * 56590.0 * 1e-9)
-    assert r["energyPerCycleJ"] == pytest.approx(1.34e-4 * 1.923 * 1e-9)
+    assert r["energyJ"] == pytest.approx(2.74e-4 * 10882.257 * 1e-9)
+    assert r["energyPerCycleJ"] == pytest.approx(2.74e-4 * 1.923 * 1e-9)
+    assert r["clockMismatch"] is False
     # the default-activity power from the last finished flow run, for comparison
     assert r["defaultPower"]["totalW"] == pytest.approx(5.52497e-05)
     assert r["defaultPower"]["activity"] == "default switching activity (not from simulation)"
@@ -121,3 +123,13 @@ def test_collect_power_without_a_report_warns(project):
     assert "did not report power" in r["warnings"][0]
     # the default-activity comparison is still there even when the simulated run failed
     assert r["defaultPower"]["totalW"] == pytest.approx(5.52497e-05)
+
+
+def test_power_flags_a_testbench_clock_that_differs_from_the_constraint(project):
+    log = (FIXTURE.parent / "power_sad_pe_10ns_clock.log").read_text()
+    assert "STA-1452" in log  # recorded with a 10 ns testbench clock against the 1.923 ns constraint
+    r = reports.collect_power(project, project.build / "orfs", "sad_pe", 56590.0, log)
+    assert r["clockMismatch"] is True
+    assert any("10 ns" in w and "1.923 ns" in w for w in r["warnings"])
+    clean = log.replace("[WARNING STA-1452]", "[INFO X]")
+    assert reports.collect_power(project, project.build / "orfs", "sad_pe", 56590.0, clean)["clockMismatch"] is False

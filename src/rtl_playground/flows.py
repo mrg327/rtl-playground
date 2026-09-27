@@ -187,12 +187,19 @@ def test_steps(project: Project, tc: Toolchain, root: Path, only: Any) -> tuple[
             f"Test {t['name']} ({t['module']} on {t['toplevel']})",
             [tc.python, tc.tool_path(build / "rtlp_cocotb.py", root), tc.tool_path(tdir / "spec.json", root)],
             project.root,
-            env={"PYTHONDONTWRITEBYTECODE": "1"},
+            env=_test_env(project),
             ok_codes=None,
         ))
     steps.append(HostStep("Read results", collect))
     title = f"Test {tests[0]['name']}" if len(tests) == 1 else f"Run {len(tests)} test suites"
     return title, steps
+
+
+def _test_env(project: Project) -> dict[str, str]:
+    # Testbenches read the clock period from here so simulated activity matches the constraint;
+    # OpenSTA does not rescale VCD activity recorded at another clock (power roughly halves at 10 ns vs 1.923 ns).
+    clk = project.constraints["clock"]
+    return {"PYTHONDONTWRITEBYTECODE": "1", "RTLP_CLOCK_PERIOD_NS": f"{clk['periodNs']:g}", "RTLP_CLOCK_PORT": clk["port"]}
 
 
 def _find_waves(run_dir: Path) -> Path | None:
@@ -393,7 +400,7 @@ def power_steps(project: Project, tc: Toolchain, root: Path, options: dict[str, 
         HostStep("Prepare the test bench", prepare),
         Command(f"Test {test['name']} with a VCD dump", [
             tc.python, tc.tool_path(project.build / "rtlp_cocotb.py", root), tc.tool_path(pdir / "spec.json", root),
-        ], project.root, env={"PYTHONDONTWRITEBYTECODE": "1"}, ok_codes=None),
+        ], project.root, env=_test_env(project), ok_codes=None),
         HostStep("Read the test result", after_test),
         HostStep("Generate config.mk, constraints and the power script", generate),
         Command("OpenROAD: report_power from simulated activity", make, project.root, env={

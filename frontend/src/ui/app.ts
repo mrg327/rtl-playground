@@ -5,11 +5,20 @@ import { serialize, deserialize } from '../model/serialize';
 import { Store, emptySel } from './store';
 import { Canvas, isEditable, type ValueMode } from './canvas';
 import { renderPalette } from './palette';
-import { renderInspector } from './inspector';
+import { renderInspector, refreshMemoryTable } from './inspector';
 import { WaveformView, toVCD, toWaveJSON, type WaveData, type WaveSignal } from './waveform';
 import { runAll, type TestResult } from '../sim/tests';
 import { Host, download, upload, openFromHash } from '../host/api';
 import { pinKey } from '../model/netlist';
+import { compile } from '../sim/engine';
+import { findRecursiveModules } from '../model/hierarchy';
+import type { Problem } from '../model/netlist';
+import type { ProjectView } from '../project/view';
+import type { CodeEditor } from '../project/editor';
+import { emitDesign } from '../hdl/emit';
+import { emitTestbench, testableModules } from '../hdl/testbench';
+import { memoryInfo } from './memview';
+import { memFileToContents } from '../model/memfile';
 
 const EXAMPLES: Record<string, string> = import.meta.glob('../../../examples/*.rtlp', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 const esc = (t: string) => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
@@ -25,14 +34,17 @@ export class App {
   speed = 500;
   clipboard: { blocks: Block[]; wires: Wire[]; notes: Note[] } | null = null;
   commands: Command[] = [];
-  tab: 'wave' | 'tests' = 'wave';
+  tab: 'wave' | 'tests' | 'sv' = 'wave';
+  mode: 'schematic' | 'project' = 'schematic';
+  project: ProjectView | null = null;
+  svEditor: CodeEditor | null = null;
   testResults: TestResult[] | null = null;
   el: Record<string, HTMLElement> = {};
 
   constructor(public root: HTMLElement) {
     root.innerHTML = `
       <header>
-        <h1>RTL Playground</h1><span class="file" id="file">untitled</span>
+        <h1>RTL Playground</h1><span class="modes" role="tablist"><button id="m-sch" class="active" role="tab" title="Draw and simulate a schematic">Schematic</button><button id="m-proj" role="tab" title="SystemVerilog project: lint, cocotb tests, synthesis, place and route">Project</button></span><span class="file" id="file">untitled</span>
         <button id="new" title="New design">New</button><button id="open">Open…</button><button id="save" title="Ctrl+S">Save</button><button id="examples">Examples…</button>
         <span class="sep"></span>
         <button id="undo" title="Ctrl+Z">↶</button><button id="redo" title="Ctrl+Y">↷</button>
@@ -48,25 +60,30 @@ export class App {
         <button id="present" title="Presentation mode (F11)">Present</button>
         <button id="cmd" title="Command palette (Ctrl+K)">⌘K</button><button id="help" title="Keyboard shortcuts (?)">?</button>
       </header>
-      <aside class="left"><h2>Blocks</h2><div class="pal" id="pal"></div></aside>
+      <aside class="left"><h2>Modules</h2><div class="modtree" id="modtree"></div><h2>Blocks</h2><div class="pal" id="pal"></div></aside>
       <main>
+        <div class="breadcrumb" id="breadcrumb"></div>
         <div class="canvas" id="canvas"></div>
       </main>
       <aside class="right"><h2>Selected</h2><div class="insp" id="insp"></div><h2>Problems</h2><div class="problems" id="problems"></div></aside>
       <section class="bottom" id="bottom">
-        <div class="tabs"><button data-tab="wave" class="active">Waveform</button><button data-tab="tests">Tests</button><span class="spacer"></span>
-          <button class="tool" id="wzoomout">−</button><button class="tool" id="wzoomin">+</button><button class="tool" id="wfit">Fit</button><button class="tool" id="wvcd">Export VCD</button><button class="tool" id="wjson">WaveDrom</button><button class="tool" id="wclear">Clear history</button><button class="tool" id="wtog">Hide</button></div>
+        <div class="tabs"><button data-tab="wave" class="active">Waveform</button><button data-tab="tests">Tests</button><button data-tab="sv">SystemVerilog</button><span class="spacer"></span>
+          <button class="tool" id="wzoomout">−</button><button class="tool" id="wzoomin">+</button><button class="tool" id="wfit">Fit</button><button class="tool" id="wvcd">Export VCD</button><button class="tool" id="wjson">WaveDrom</button><button class="tool" id="wclear">Clear history</button>
+          <button class="tool" id="svdownload">Export .sv</button><button class="tool" id="svtb">Export testbench</button><button class="tool" id="svsend">Send to project…</button>
+          <button class="tool" id="wtog">Hide</button></div>
         <div class="panel active" id="wave"></div>
         <div class="panel tests" id="tests"></div>
-      </section>`;
-    for (const id of ['file', 'new', 'open', 'save', 'examples', 'undo', 'redo', 'back', 'step', 'run', 'speed', 'rst', 'poweron', 'cycle', 'vmode', 'dim', 'fit', 'present', 'cmd', 'help', 'pal', 'canvas', 'insp', 'problems', 'bottom', 'wave', 'tests', 'wzoomout', 'wzoomin', 'wfit', 'wvcd', 'wjson', 'wclear', 'wtog']) this.el[id] = root.querySelector('#' + id)!;
+        <div class="panel sv" id="sv"></div>
+      </section>
+      <div class="project" id="project"></div>`;
+    for (const id of ['file', 'new', 'open', 'save', 'examples', 'undo', 'redo', 'back', 'step', 'run', 'speed', 'rst', 'poweron', 'cycle', 'vmode', 'dim', 'fit', 'present', 'cmd', 'help', 'pal', 'modtree', 'breadcrumb', 'canvas', 'insp', 'problems', 'bottom', 'wave', 'tests', 'sv', 'wzoomout', 'wzoomin', 'wfit', 'wvcd', 'wjson', 'wclear', 'wtog', 'svdownload', 'svtb', 'svsend']) this.el[id] = root.querySelector('#' + id)!;
     const cv = this.el.canvas;
-    this.canvas = new Canvas(cv, this.store, { onEditBlock: id => this.inlineEdit(id), onEditNote: id => this.editNote(id) });
-    cv.insertAdjacentHTML('beforeend', `<div class="empty-hint">The canvas is empty.<br>Add a block from the list on the left, or open an example.</div><div class="hint">Drag from a pin to wire · click a 1-bit input to toggle · drag empty space to select · right-drag or Space+drag to pan · Ctrl+wheel to zoom · <kbd>Space</kbd> clocks</div>`);
+    this.canvas = new Canvas(cv, this.store, { onEditBlock: id => this.inlineEdit(id), onEditNote: id => this.editNote(id), onEnterInstance: id => this.store.enterInstance(id) });
+    cv.insertAdjacentHTML('beforeend', `<div class="empty-hint">The canvas is empty.<br>Add a block from the list on the left, or open an example.</div><div class="hint">Drag from a pin to wire · click a 1-bit input to toggle · drag empty space to select · right-drag or Space+drag to pan · Ctrl+wheel to zoom · <kbd>Space</kbd> clocks · double-click an instance to open it</div>`);
     renderPalette(this.el.pal, t => this.addBlock(t));
     this.wave = new WaveformView(this.el.wave, {
       onCursor: i => { this.store.sim.cur = i; this.store.emit('sim'); },
-      onRemove: key => { if (key === 'clk') return; const b = this.store.module.blocks.find(x => key.startsWith(x.id + '.')); if (b) this.store.mutate('Untrace', () => { b.trace = false; }); },
+      onRemove: key => { if (key === 'clk') return; this.store.untraceHierKey(key); },
       onRadix: (key, r) => { this.store.design.views.wave.radix[key] = r; this.store.dirty = true; this.refresh('sim'); },
       onReorder: keys => { this.store.design.views.wave.signals = keys; this.refresh('sim'); },
     });
@@ -79,18 +96,41 @@ export class App {
     this.boot();
   }
 
+  async setMode(mode: 'schematic' | 'project'): Promise<void> {
+    this.mode = mode;
+    this.root.classList.toggle('project-mode', mode === 'project');
+    this.root.querySelector('#m-sch')!.classList.toggle('active', mode === 'schematic');
+    this.root.querySelector('#m-proj')!.classList.toggle('active', mode === 'project');
+    if (mode === 'project') {
+      if (!this.project) {
+        // CodeMirror lives in the project chunk, so the schematic editor does not pay for it.
+        const { ProjectView } = await import('../project/view');
+        this.project ??= new ProjectView(this.root.querySelector('#project')!, this.host, m => this.toast(m));
+      }
+      void this.project.show();
+      document.title = 'Project – RTL Playground';
+    } else { this.canvas.render(); this.refresh('sim'); }
+    try { localStorage.setItem('rtlp.mode', mode); } catch { /* storage may be unavailable */ }
+  }
+
   async boot(): Promise<void> {
     const ok = await this.host.connect();
     if (ok) { const open = openFromHash(); if (open) await this.openPath(open); this.toast(`Connected to local host · ${this.host.info!.root}`); }
     else this.toast('No local host found: files will download to your browser instead.');
+    let saved: string | null = null; try { saved = localStorage.getItem('rtlp.mode'); } catch { /* ignore */ }
+    if (saved === 'project' || /(^|[#&])mode=project/.test(location.hash)) void this.setMode('project');
   }
 
   // ---------- rendering ----------
   refresh(what: string): void {
     const s = this.store, sim = s.sim;
     if (what === 'load') { this.canvas.zoomFit(); this.testResults = null; }
+    else if (what === 'view') this.canvas.zoomFit();
     this.canvas.render();
-    if (what !== 'sim') renderInspector(this.el.insp, s, { del: () => this.deleteSelection(), rotate: () => this.rotate(), flip: () => this.flip() });
+    if (what !== 'sim') {
+      renderInspector(this.el.insp, s, { del: () => this.deleteSelection(), rotate: () => this.rotate(), flip: () => this.flip(), loadMemFile: id => void this.loadMemFile(id) });
+      this.renderModuleTree(); this.renderBreadcrumb();
+    } else refreshMemoryTable(this.el.insp, s); // a memory's viewer follows the time-travel cursor without rebuilding the whole panel
     this.renderProblems();
     this.el.cycle.textContent = `cycle ${sim.cycle}${sim.live ? '' : ` / ${sim.lastCycle}`}`; this.el.cycle.classList.toggle('past', !sim.live);
     this.el.file.textContent = s.file ?? s.design.name; this.el.file.classList.toggle('dirty', s.dirty);
@@ -99,34 +139,77 @@ export class App {
     (this.el.back as HTMLButtonElement).disabled = sim.cur === 0;
     this.renderWave();
     if (this.tab === 'tests' && what !== 'sim') this.renderTests();
+    if (this.tab === 'sv' && what !== 'sim') void this.renderSV();
     document.title = `${s.dirty ? '• ' : ''}${s.file ?? s.design.name} – RTL Playground`;
   }
 
-  traceKeyOf(b: Block): string | null { const d = defOf(b.type); const ports = d.ports(b.params); const p = d.traceKey ? ports.find(x => x.name === d.traceKey) : ports.find(x => x.dir === 'out'); return p ? `${b.id}.${p.name}` : null; }
-
+  /** Signals traced anywhere in the flattened design (DESIGN.md task 2: hierarchical names in the waveform),
+   * always shown regardless of which sheet is open — the waveform reflects the whole simulated tree. */
   waveData(): WaveData {
     const s = this.store, sim = s.sim, c = sim.compiled;
-    const traced = s.module.blocks.filter(b => b.trace).map(b => ({ b, key: this.traceKeyOf(b) })).filter(x => x.key) as { b: Block; key: string }[];
+    const traced = [...s.tracedSignals];
     const order = s.design.views.wave.signals; traced.sort((a, b) => { const ia = order.indexOf(a.key), ib = order.indexOf(b.key); return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib); });
     const n = sim.frames.length; const cycles = sim.frames.map(f => f.cycle); const rst = sim.frames.map(f => f.rst);
     const frameVals: bigint[][] = []; for (let i = 0; i < n; i++) frameVals.push(sim.values(i));
-    const signals: WaveSignal[] = traced.map(({ b, key }) => {
-      const port = c.netlist.ports.get(b.id)!.find(p => `${b.id}.${p.name}` === key)!;
-      let src = key; if (port.dir === 'in') { const drv = c.netlist.byPin.get(key)?.drivers[0]; src = drv ? pinKey(drv) : ''; }
-      const idx = src ? c.pinIndex.get(src) : undefined; const m = (1n << BigInt(port.width)) - 1n;
-      const values = frameVals.map(v => (idx === undefined ? 0n : v[idx] & m));
-      return { key, name: b.label || b.id, width: port.width, radix: s.design.views.wave.radix[key] ?? (port.width > 16 ? 'hex' : 'dec'), values };
+    const signals: WaveSignal[] = traced.map(({ key, label, width }) => {
+      // A traced pin that is itself an input (e.g. an Output block's `a`) never gets a value written into it
+      // by evaluate() (only real outputs do); resolve through its driver, which is a no-op for an output pin
+      // (its own net's one driver is itself).
+      const net = c.netlist.byPin.get(key); const drv = net?.drivers[0];
+      const idx = c.pinIndex.get(drv ? pinKey(drv) : key);
+      const mask = (1n << BigInt(width)) - 1n;
+      const values = frameVals.map(v => (idx === undefined ? 0n : v[idx] & mask));
+      return { key, name: label, width, radix: s.design.views.wave.radix[key] ?? (width > 16 ? 'hex' : 'dec'), values };
     });
     signals.unshift({ key: 'clk', name: 'clk', width: 1, radix: 'bin', values: cycles.map(() => 0n) });
     return { cycles, signals, cursor: sim.cur, live: n - 1, rst };
   }
   renderWave(): void { if (this.el.bottom.classList.contains('collapsed') || this.tab !== 'wave') return; this.wave.update(this.waveData()); }
 
+  /** The sheet actually open's own structural problems (multi-driver, width, dangling, undriven, loops — all
+   * from the un-flattened module, so ids match what's on screen) plus any module-instantiates-itself problem
+   * anywhere in the design, since recursion is a design-wide error, not tied to whichever sheet is open. */
   renderProblems(): void {
-    const ps = this.store.sim.compiled.problems;
+    const local = compile(this.store.module).problems;
+    const recursion: Problem[] = [...findRecursiveModules(this.store.design).values()].map(message => ({ level: 'error', code: 'recursion', message }));
+    const ps = [...local, ...recursion];
     if (!ps.length) { this.el.problems.innerHTML = `<div class="ok">No problems.</div>`; return; }
     this.el.problems.innerHTML = ps.map((p, i) => `<div class="item ${p.level}" data-i="${i}">${esc(p.message)}</div>`).join('');
     this.el.problems.onclick = e => { const it = (e.target as HTMLElement).closest<HTMLElement>('.item'); if (!it) return; const p = ps[+it.dataset.i!]; const sel = emptySel(); for (const b of p.blocks ?? []) sel.blocks.add(b); for (const w of p.wires ?? []) sel.wires.add(w); this.store.select(sel); };
+  }
+
+  // ---------- module hierarchy (DESIGN.md task 3) ----------
+  renderModuleTree(): void {
+    const s = this.store; const el = this.el.modtree;
+    const keys = Object.keys(s.design.modules);
+    el.innerHTML = keys.map(k => `<div class="item${k === s.viewModule ? ' active' : ''}" data-k="${esc(k)}" title="${k === s.design.top ? 'The top module' : 'Double-click, or use the menu, to rename/delete/set as top'}"><span class="name">${esc(k)}</span>${k === s.design.top ? '<span class="top-badge">top</span>' : ''}<button class="menu" data-menu="${esc(k)}" title="Module actions">⋮</button></div>`).join('')
+      + `<button class="add">+ New module</button>`;
+    el.querySelectorAll<HTMLElement>('.item').forEach(it => { it.onclick = e => { if ((e.target as HTMLElement).closest('.menu')) return; this.store.openModule(it.dataset.k!); }; });
+    el.querySelectorAll<HTMLButtonElement>('button.menu').forEach(b => { b.onclick = e => { e.stopPropagation(); void this.moduleMenu(b.dataset.menu!); }; });
+    el.querySelector<HTMLButtonElement>('.add')!.onclick = () => { const key = this.store.addModule('module'); this.store.openModule(key); };
+  }
+  renderBreadcrumb(): void {
+    const s = this.store; const el = this.el.breadcrumb;
+    el.innerHTML = s.breadcrumb.map((step, i) => `${i > 0 ? '<span class="sep">/</span>' : ''}<button data-i="${i}" class="${i === s.breadcrumb.length - 1 ? 'active' : ''}">${esc(step.module)}</button>`).join('')
+      + (s.simActive ? '' : ' <span style="color:var(--hi);font-size:11px;margin-left:8px">not simulated (not reached from the top module)</span>');
+    el.querySelectorAll<HTMLButtonElement>('button[data-i]').forEach(b => { b.onclick = () => this.store.goToBreadcrumb(+b.dataset.i!); });
+  }
+  async moduleMenu(key: string): Promise<void> {
+    const s = this.store;
+    const pick = await this.pickList(`Module "${key}"`, [
+      { label: 'Open', value: 'open' },
+      { label: key === s.design.top ? 'Top module' : 'Set as top module', value: 'top', hint: key === s.design.top ? 'already top' : '' },
+      { label: 'Rename…', value: 'rename' },
+      { label: 'Delete', value: 'delete' },
+    ]);
+    if (!pick) return;
+    if (pick.value === 'open') s.openModule(key);
+    else if (pick.value === 'top') { if (key !== s.design.top) s.setTop(key); }
+    else if (pick.value === 'rename') { const name = prompt('Rename module to:', key); if (name && name.trim() && name.trim() !== key) { if (s.design.modules[name.trim()]) this.toast(`A module named "${name.trim()}" already exists.`, true); else s.renameModule(key, name.trim()); } }
+    else if (pick.value === 'delete') {
+      if (!confirm(`Delete module "${key}"? Any instance of it elsewhere would then refer to a missing module.`)) return;
+      if (!s.deleteModule(key)) this.toast(`Cannot delete "${key}": it is the top module, the only module, or still instantiated elsewhere.`, true);
+    }
   }
 
   renderTests(): void {
@@ -144,6 +227,75 @@ export class App {
     });
     el.innerHTML = h;
     el.querySelector<HTMLButtonElement>('#runtests')!.onclick = () => { this.testResults = runAll(this.store.design); this.renderTests(); };
+  }
+
+  // ---------- SystemVerilog (DESIGN.md section 8) ----------
+  svSourceFile(): string { return (this.store.file ?? this.store.design.name).replace(/\.rtlp$/, '') + '.rtlp'; }
+  svText(): string { return emitDesign(this.store.design, { sourceFile: this.svSourceFile() }); }
+  async renderSV(): Promise<void> {
+    let text: string;
+    try { text = this.svText(); } catch (e) { text = `// Cannot generate SystemVerilog for this design:\n// ${(e as Error).message}\n`; }
+    if (!this.svEditor) {
+      // CodeMirror lives in the project chunk (frontend/src/project/editor.ts), so the schematic bundle does not pay for it.
+      const { CodeEditor } = await import('../project/editor');
+      this.svEditor ??= new CodeEditor(this.el.sv, { onChange: () => {}, onSave: () => {} });
+    }
+    this.svEditor.open('design.sv', text, true);
+  }
+  async exportSV(): Promise<void> {
+    let text: string; try { text = this.svText(); } catch (e) { this.toast(`Cannot generate SystemVerilog: ${(e as Error).message}`, true); return; }
+    const name = (this.store.file ?? this.store.design.name).replace(/\.rtlp$/, '') + '.sv';
+    if (this.host.available && this.store.file) { try { await this.host.write(name, text); this.toast(`Saved ${name}`); return; } catch (e) { this.toast(`Save failed: ${(e as Error).message}`, true); } }
+    download(name.replace(/^.*\//, ''), text, 'text/plain');
+  }
+  async exportTestbenches(): Promise<void> {
+    const d = this.store.design; const modules = testableModules(d);
+    if (!modules.length) { this.toast('This design has no tests, so there is no testbench to export.'); return; }
+    for (const key of modules) {
+      let text: string; try { text = emitTestbench(d, key, { sourceFile: this.svSourceFile() }); } catch (e) { this.toast(`Cannot generate tb_${key}.sv: ${(e as Error).message}`, true); continue; }
+      const dir = this.store.file?.includes('/') ? this.store.file.replace(/\/[^/]*$/, '') : '';
+      const base = dir ? `${dir}/tb_${key}.sv` : `tb_${key}.sv`;
+      if (this.host.available && this.store.file) { try { await this.host.write(base, text); this.toast(`Saved ${base}`); continue; } catch (e) { this.toast(`Save failed: ${(e as Error).message}`, true); } }
+      download(`tb_${key}.sv`, text, 'text/plain');
+    }
+  }
+  async sendToProject(): Promise<void> {
+    if (!this.host.available) { this.toast('Send to project needs the local host: start the app with rtl-playground.', true); return; }
+    let text: string; try { text = this.svText(); } catch (e) { this.toast(`Cannot generate SystemVerilog: ${(e as Error).message}`, true); return; }
+    let projects; try { projects = (await this.host.projects()).projects; } catch (e) { this.toast(`Cannot list projects: ${(e as Error).message}`, true); return; }
+    if (!projects.length) { this.toast('No projects found. Switch to the Project view and create one first.', true); return; }
+    const pick = await this.pickList('Send to which project?', projects.map(p => ({ label: p.path || '.', hint: p.name, value: p.path })));
+    if (!pick) return;
+    const defaultName = `${this.store.design.top || this.store.design.name || 'top'}.sv`.replace(/[^\w.-]/g, '_');
+    const fileName = prompt('File name (relative to the project\'s rtl/ folder):', defaultName);
+    if (!fileName) return;
+    const path = (pick.value ? `${pick.value}/` : '') + `rtl/${fileName}`;
+    try { await this.host.write(path, text); this.toast(`Saved ${path}`); } catch (e) { this.toast(`Cannot save ${path}: ${(e as Error).message}`, true); }
+  }
+
+  // ---------- memory blocks (DESIGN.md section 4) ----------
+  async loadMemFile(id: string): Promise<void> {
+    const s = this.store; const b = s.module.blocks.find(x => x.id === id); if (!b) return;
+    const info = memoryInfo(b); if (!info) return;
+    let text: string;
+    if (this.host.available) {
+      let dir = '';
+      const pickPath = async (): Promise<string | null> => {
+        const { entries } = await this.host.list(dir);
+        const items = [...(dir ? [{ name: '..', type: 'dir' as const }] : []), ...entries.filter(e => e.type === 'dir'), ...entries.filter(e => e.type === 'file' && /\.mem$/i.test(e.name))];
+        const pick = await this.pickList(`Load .mem from ${this.host.info!.root}${dir ? '/' + dir : ''}`, items.map(e => ({ label: (e.type === 'dir' ? '📁 ' : '') + e.name, hint: '', value: e.name, dir: e.type === 'dir' })));
+        if (!pick) return null;
+        if (pick.dir) { dir = pick.value === '..' ? dir.split('/').slice(0, -1).join('/') : (dir ? dir + '/' : '') + pick.value; return pickPath(); }
+        return (dir ? dir + '/' : '') + pick.value;
+      };
+      const path = await pickPath(); if (!path) return;
+      try { text = (await this.host.read(path)).text; } catch (e) { this.toast(`Could not read ${path}: ${(e as Error).message}`, true); return; }
+    } else {
+      const f = await upload('.mem,.hex,text/plain'); if (!f) return; text = f.text;
+    }
+    const contents = memFileToContents(text, info.depth);
+    s.mutate(`Load ${id}.mem`, () => { b.params.contents = contents; });
+    this.toast(`Loaded ${info.depth} words into ${id}. Power-on to apply them.`);
   }
 
   // ---------- editing ----------
@@ -309,6 +461,9 @@ export class App {
       { id: 'download', title: 'Download design file', run: () => download((s.file ?? s.design.name).replace(/\.rtlp$/, '') + '.rtlp', serialize(s.design)) },
       { id: 'examples', title: 'Open example…', run: () => this.openExample() },
       { id: 'tests', title: 'Run all tests', run: () => { this.showTab('tests'); this.testResults = runAll(s.design); this.renderTests(); } },
+      { id: 'exportsv', title: 'Export SystemVerilog', run: () => void this.exportSV() },
+      { id: 'exporttb', title: 'Export testbench', run: () => void this.exportTestbenches() },
+      { id: 'sendtoproject', title: 'Send to project…', run: () => void this.sendToProject() },
       { id: 'vcd', title: 'Export waveform as VCD', run: () => download((s.design.name || 'wave') + '.vcd', toVCD(this.waveData()), 'text/plain') },
       { id: 'wavejson', title: 'Copy WaveDrom JSON', run: () => { const j = JSON.stringify(toWaveJSON(this.waveData())); navigator.clipboard?.writeText(j); download((s.design.name || 'wave') + '.json', j); } },
       { id: 'present', title: 'Presentation mode', keys: 'F11', run: () => this.togglePresent() },
@@ -316,10 +471,17 @@ export class App {
       { id: 'help', title: 'Keyboard shortcuts', keys: '?', run: () => this.showHelp() },
     ];
   }
-  showTab(t: 'wave' | 'tests'): void { this.tab = t; for (const b of this.el.bottom.querySelectorAll<HTMLButtonElement>('[data-tab]')) b.classList.toggle('active', b.dataset.tab === t); this.el.wave.classList.toggle('active', t === 'wave'); this.el.tests.classList.toggle('active', t === 'tests'); if (t === 'tests') this.renderTests(); else this.renderWave(); }
+  showTab(t: 'wave' | 'tests' | 'sv'): void {
+    this.tab = t;
+    for (const b of this.el.bottom.querySelectorAll<HTMLButtonElement>('[data-tab]')) b.classList.toggle('active', b.dataset.tab === t);
+    this.el.wave.classList.toggle('active', t === 'wave'); this.el.tests.classList.toggle('active', t === 'tests'); this.el.sv.classList.toggle('active', t === 'sv');
+    if (t === 'tests') this.renderTests(); else if (t === 'sv') void this.renderSV(); else this.renderWave();
+  }
 
   bindToolbar(): void {
     const s = this.store; const e = this.el;
+    this.root.querySelector<HTMLButtonElement>('#m-sch')!.onclick = () => void this.setMode('schematic');
+    this.root.querySelector<HTMLButtonElement>('#m-proj')!.onclick = () => void this.setMode('project');
     e.new.onclick = () => this.newDesign(); e.open.onclick = () => this.open(); e.save.onclick = () => this.save(); e.examples.onclick = () => this.openExample();
     e.undo.onclick = () => s.undo(); e.redo.onclick = () => s.redo();
     e.back.onclick = () => this.back(); e.step.onclick = () => this.step(); e.run.onclick = () => this.toggleRun();
@@ -328,16 +490,20 @@ export class App {
     (e.vmode as HTMLSelectElement).onchange = () => { this.canvas.valueMode = (e.vmode as HTMLSelectElement).value as ValueMode; this.canvas.render(); };
     e.dim.onclick = () => { this.canvas.dimUnchanged = !this.canvas.dimUnchanged; e.dim.classList.toggle('on', this.canvas.dimUnchanged); this.canvas.render(); };
     e.fit.onclick = () => this.canvas.zoomFit(); e.present.onclick = () => this.togglePresent(); e.cmd.onclick = () => this.commandPalette(); e.help.onclick = () => this.showHelp();
-    for (const b of e.bottom.querySelectorAll<HTMLButtonElement>('[data-tab]')) b.onclick = () => this.showTab(b.dataset.tab as 'wave' | 'tests');
+    for (const b of e.bottom.querySelectorAll<HTMLButtonElement>('[data-tab]')) b.onclick = () => this.showTab(b.dataset.tab as 'wave' | 'tests' | 'sv');
     e.wzoomin.onclick = () => this.wave.zoomIn(); e.wzoomout.onclick = () => this.wave.zoomOut(); e.wfit.onclick = () => this.wave.zoomFit();
     e.wvcd.onclick = () => this.commands.find(c => c.id === 'vcd')!.run(); e.wjson.onclick = () => this.commands.find(c => c.id === 'wavejson')!.run();
     e.wclear.onclick = () => { s.sim.clearHistory(); s.emit('sim'); };
+    e.svdownload.onclick = () => this.commands.find(c => c.id === 'exportsv')!.run();
+    e.svtb.onclick = () => this.commands.find(c => c.id === 'exporttb')!.run();
+    e.svsend.onclick = () => this.commands.find(c => c.id === 'sendtoproject')!.run();
     e.wtog.onclick = () => { const c = e.bottom.classList.toggle('collapsed'); e.wtog.textContent = c ? 'Show' : 'Hide'; if (!c) this.renderWave(); };
     window.addEventListener('beforeunload', ev => { if (s.dirty) { ev.preventDefault(); } });
     try { const t = localStorage.getItem('rtlp-theme'); if (t) document.documentElement.dataset.theme = t; } catch { /* ignore */ }
   }
   bindKeys(): void {
     document.addEventListener('keydown', e => {
+      if (this.mode === 'project') return;
       if (isEditable(e.target)) return;
       if (document.querySelector('.modal-bg')) return;
       const k = e.key; const ctrl = e.ctrlKey || e.metaKey;

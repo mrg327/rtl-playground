@@ -14,4 +14,14 @@ describe('serialize', () => {
     expect(b.b5.params).toMatchObject({ width: 4, value: 9 }); expect(b.b6.params).toMatchObject({ width: 8, value: 42 }); expect(b.b7.type).toBe('cmp');
     expect(d.modules.top.wires).toEqual([{ id: 'w1', from: { b: 'b1', p: 'y' }, to: { b: 'b2', p: 'd' } }, { id: 'w2', from: { b: 'b2', p: 'q' }, to: { b: 'b3', p: 'a' } }, { id: 'w3', from: { b: 'b5', p: 'y' }, to: { b: 'b7', p: 'b' } }]);
   });
+  it('round-trips memory block contents and params', () => {
+    const d = emptyDesign('mem');
+    d.modules.top.blocks.push({ id: 'ram1', type: 'ram', params: { ...defaultParams('ram'), width: 8, depth: 8, readStyle: 'async', port2: true, contents: "0 1 2 3 8'hFF" }, x: 0, y: 0 });
+    d.modules.top.blocks.push({ id: 'rf1', type: 'regfile', params: { ...defaultParams('regfile'), width: 32, depth: 16, zeroReg: true }, x: 0, y: 0 });
+    const d2 = deserialize(serialize(d));
+    const ram = d2.modules.top.blocks.find(b => b.id === 'ram1')!;
+    expect(ram.params).toMatchObject({ width: 8, depth: 8, readStyle: 'async', port2: true, contents: "0 1 2 3 8'hFF" });
+    const rf = d2.modules.top.blocks.find(b => b.id === 'rf1')!;
+    expect(rf.params).toMatchObject({ width: 32, depth: 16, zeroReg: true });
+  });
 });

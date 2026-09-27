@@ -1,0 +1,94 @@
+/* Project workspace (DESIGN.md section 13). Uses the tokens from ui/styles.css. */
+.pj-bar{grid-column:1/4;display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+.pj-bar .spacer{flex:1}
+.pj-bar select#pj-select{max-width:280px}
+.pj-tools{font-size:12px;padding:2px 8px;border-radius:10px;border:1px solid var(--line);color:var(--ink2);cursor:pointer;white-space:nowrap;max-width:360px;overflow:hidden;text-overflow:ellipsis}
+.pj-tools.ok{color:#2e7d4f;border-color:color-mix(in srgb,#2e7d4f 45%,var(--line))}
+.pj-tools.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+.pj-tools a{color:inherit}
+
+.pj-files{grid-column:1/2;grid-row:2/4;border-right:1px solid var(--line);min-height:0}
+.pj-files h2,.pj-side h2{display:flex;align-items:center;gap:4px}
+.pj-files h2 .tool{margin-left:auto;padding:0 6px;font-size:12px}
+.pj-files h2 .tool+.tool{margin-left:0}
+.pj-tree{padding:0 4px 10px;font-size:13px;overflow:auto}
+.pj-node{padding:3px 8px;border-radius:4px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pj-node:hover{background:var(--paper)}
+.pj-node.dir{color:var(--ink2);font-weight:500}
+.pj-node.cur{background:color-mix(in srgb,var(--sel) 14%,transparent);color:var(--ink)}
+.pj-empty{color:var(--ink2);padding:6px 12px;line-height:1.5}
+
+.pj-main{grid-column:2/3;grid-row:2/3;display:flex;flex-direction:column;min-width:0;min-height:0}
+.pj-edhead{display:flex;align-items:center;gap:6px;padding:4px 10px;border-bottom:1px solid var(--line);background:var(--panel);font-family:var(--mono);font-size:12px;color:var(--ink2)}
+.pj-edhead .spacer{flex:1}
+.pj-edhead .dirty::after{content:" •";color:var(--hi)}
+.pj-edhead .tool{font-size:12px;padding:2px 8px;font-family:var(--font)}
+.pj-editor{flex:1;min-height:0;overflow:hidden}
+.pj-editor .cm-editor{height:100%}
+
+.pj-side{grid-column:3/4;grid-row:2/3;border-left:1px solid var(--line);min-height:0}
+.pj-form{padding:0 12px 12px;display:flex;flex-direction:column;gap:6px}
+.pj-form h3{font-size:12px;margin:10px 0 2px;color:var(--ink2);font-weight:600}
+.pj-form label{display:grid;grid-template-columns:1fr 92px 22px;align-items:center;gap:6px}
+.pj-form label span{font-size:12px}
+.pj-form label em{font-style:normal;font-size:11px;color:var(--ink2)}
+.pj-form label input,.pj-form label select{width:100%;padding:3px 6px}
+.pj-form label select{grid-column:2/4}
+.pj-form label input[type=text]{grid-column:2/4}
+.pj-kv{display:flex;justify-content:space-between;font-size:12px}
+.pj-hint{font-size:11px;color:var(--ink2);line-height:1.4}
+.pj-hint.warn{color:var(--hi)}
+.pj-formbtns{display:flex;gap:6px;margin-top:8px}
+
+.pj-out{grid-column:2/4;grid-row:3/4;border-top:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0;min-width:0}
+.pj-out .tabs{display:flex;align-items:center;gap:2px;padding:4px 8px;border-bottom:1px solid var(--line)}
+.pj-out .tabs button{border-color:transparent;padding:3px 10px;font-weight:500}
+.pj-out .tabs button.active{background:var(--paper);border-color:var(--line)}
+.pj-out .tabs .spacer{flex:1}
+.pj-out .panel{flex:1;min-height:0;overflow:auto;display:none;padding:8px 12px;margin:0}
+.pj-out .panel.active{display:block}
+.pj-out .panel.active#pj-waves{display:flex;flex-direction:column;padding:0}
+pre#pj-log{font-family:var(--mono);font-size:12px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
+.pj-status{font-size:12px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60%}
+.pj-status.running{color:var(--sel)}
+.pj-status.passed{color:#2e7d4f}
+.pj-status.failed,.pj-status.error{color:var(--bad)}
+
+.pj-out .item,.pj-problems-list .item{padding:4px 8px;margin:2px 0;border-left:3px solid var(--line);font-size:12px;cursor:pointer;line-height:1.4}
+.pj-out .item.error,.pj-problems-list .item.error{border-color:var(--bad)}
+.pj-out .item.warning{border-color:var(--hi)}
+.pj-out .item code{font-size:11px}
+.pj-sum{font-weight:600;margin-bottom:6px}
+.pj-out h4{margin:10px 0 4px;font-size:12px;display:flex;gap:10px;align-items:baseline}
+.pj-wave,.pj-wave-open{font-weight:400;font-size:12px}
+.pj-waves-bar{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid var(--line);font-size:12px;flex:0 0 auto}
+.pj-waves-bar .spacer{flex:1}
+.pj-surfer-credit{color:var(--ink2)}
+.pj-waves-frame{flex:1;min-height:0;border:0;width:100%;background:#1e1e1e}
+.pj-surfer-setup{padding:14px 16px;display:flex;flex-direction:column;gap:8px;max-width:520px}
+.pj-surfer-setup button{align-self:flex-start}
+.pj-table{border-collapse:collapse;font-size:12px;width:100%}
+.pj-table th{text-align:left;color:var(--ink2);font-weight:500;padding:2px 8px;border-bottom:1px solid var(--line)}
+.pj-table td{padding:2px 8px;border-bottom:1px solid color-mix(in srgb,var(--line) 50%,transparent);font-family:var(--mono);vertical-align:top}
+.pj-table tr.failed td{color:var(--bad)}
+.pj-table td.msg{font-family:var(--font);white-space:pre-wrap}
+.pj-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;margin:8px 0}
+.pj-tile{border:1px solid var(--line);border-radius:6px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;background:var(--paper)}
+.pj-tile span{font-size:11px;color:var(--ink2)}
+.pj-tile b{font-family:var(--mono);font-size:17px;font-weight:500}
+.pj-tile em{font-style:normal;font-size:11px;color:var(--ink2)}
+.pj-tile.good b{color:#2e7d4f}
+.pj-tile.bad b{color:var(--bad)}
+.pj-layout{margin:10px 0;max-width:520px}
+.pj-layout img{width:100%;border:1px solid var(--line);border-radius:4px;background:#000}
+.pj-layout img{cursor:zoom-in}
+.pj-layout figcaption{font-size:11px;color:var(--ink2)}
+.pj-shots{display:flex;flex-wrap:wrap;gap:4px;margin:-4px 0 10px}
+.pj-shots button{font-size:12px;padding:2px 8px}
+.pj-shots button.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.pj-files-out{font-size:12px;padding-left:18px;line-height:1.7}
+.pj-files-out code{font-size:11px;color:var(--ink2)}
+@media (max-width:900px){#app.project-mode .project{grid-template-columns:170px minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto minmax(160px,38%)}
+  .pj-side{grid-column:2/3;grid-row:3/4;border-left:0;border-top:1px solid var(--line);max-height:220px}
+  .pj-out{grid-row:4/5}.pj-files{grid-row:2/5}}
+@media (prefers-color-scheme:dark){.pj-tools.ok,.pj-status.passed,.pj-tile.good b{color:#6fcf97}}

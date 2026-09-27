@@ -95,6 +95,7 @@ function autoName(b: Block, port: string): string {
   const base = b.label?.trim() ? sanitize(b.label) : b.id;
   const d = defOf(b.type);
   const outs = d.ports(b.params).filter(p => p.dir === 'out');
-  return outs.length > 1 ? `${base}_${port}` : base;
+  // An instance's own name is taken by the instantiation, so its nets always carry the port name.
+  return outs.length > 1 || b.type === 'instance' ? `${base}_${port}` : base;
 }
 export const sanitize = (s: string): string => { let t = s.replace(/[^A-Za-z0-9_]/g, '_'); if (!/^[A-Za-z_]/.test(t)) t = '_' + t; return t; };

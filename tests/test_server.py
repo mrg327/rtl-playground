@@ -73,7 +73,7 @@ def root(tmp_path_factory) -> Path:
     r = tmp_path_factory.mktemp("root")
     (r / "counter.rtlp").write_text('{"version": 2}')
     (r / "notes.md").write_text("# notes")
-    (r / "secret.txt").write_text("not listed")
+    (r / "secret.bin").write_text("not listed")
     (r / ".hidden.rtlp").write_text("{}")
     (r / "node_modules").mkdir()
     (r / "sub").mkdir()
@@ -123,7 +123,7 @@ def test_list_root_filters(client: Client):
     assert ("sub", "dir") in names
     assert ("counter.rtlp", "file") in names
     assert ("notes.md", "file") in names
-    assert all(n not in ("secret.txt", ".hidden.rtlp", "node_modules") for n, _ in names)
+    assert all(n not in ("secret.bin", ".hidden.rtlp", "node_modules") for n, _ in names)
     # dirs first, then files
     assert names[0] == ("sub", "dir")
     entry = next(e for e in data["entries"] if e["name"] == "counter.rtlp")
@@ -175,9 +175,9 @@ def test_write_with_token_creates_parents(client: Client, root: Path):
 
 
 def test_write_rejects_unsupported_extension(client: Client, root: Path):
-    status, data = client.request("PUT", "/api/file?path=evil.py", {"text": "x"}, token=TOKEN)
+    status, data = client.request("PUT", "/api/file?path=evil.exe", {"text": "x"}, token=TOKEN)
     assert status == 400
-    assert not (root / "evil.py").exists()
+    assert not (root / "evil.exe").exists()
 
 
 def test_if_mtime_conflict(client: Client, root: Path):

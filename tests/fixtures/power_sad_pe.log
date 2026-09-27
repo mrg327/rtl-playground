@@ -1,0 +1,63 @@
+make: Entering directory '/OpenROAD-flow-scripts/flow'
+/opt/py/bin/python3 /OpenROAD-flow-scripts/flow/scripts/run_command.py --log /work/sad_pe/build/orfs/logs/asap7/sad_pe/base/run.log --tee -- /OpenROAD-flow-scripts/tools/install/OpenROAD/bin/openroad -exit -no_init -threads 4  -no_splash  /work/sad_pe/build/rtlp_power.tcl
+source /OpenROAD-flow-scripts/flow/platforms/asap7/liberty_suppressions.tcl
+read_liberty /OpenROAD-flow-scripts/flow/platforms/asap7/lib/NLDM/asap7sc7p5t_AO_RVT_FF_nldm_211120.lib.gz
+read_liberty /OpenROAD-flow-scripts/flow/platforms/asap7/lib/NLDM/asap7sc7p5t_INVBUF_RVT_FF_nldm_220122.lib.gz
+read_liberty /OpenROAD-flow-scripts/flow/platforms/asap7/lib/NLDM/asap7sc7p5t_OA_RVT_FF_nldm_211120.lib.gz
+read_liberty /OpenROAD-flow-scripts/flow/platforms/asap7/lib/NLDM/asap7sc7p5t_SIMPLE_RVT_FF_nldm_211120.lib.gz
+read_liberty /OpenROAD-flow-scripts/flow/platforms/asap7/lib/NLDM/asap7sc7p5t_SEQ_RVT_FF_nldm_220123.lib
+read_lef /OpenROAD-flow-scripts/flow/platforms/asap7/lef/asap7_tech_1x_201209.lef
+[INFO ODB-0227] LEF file: /OpenROAD-flow-scripts/flow/platforms/asap7/lef/asap7_tech_1x_201209.lef, created 30 layers, 9 vias
+read_lef /OpenROAD-flow-scripts/flow/platforms/asap7/lef/asap7sc7p5t_28_R_1x_220121a.lef
+[INFO ODB-0227] LEF file: /OpenROAD-flow-scripts/flow/platforms/asap7/lef/asap7sc7p5t_28_R_1x_220121a.lef, created 212 library cells
+read_db /work/sad_pe/build/orfs/results/asap7/sad_pe/base/6_final.odb
+read_sdc /work/sad_pe/build/orfs/results/asap7/sad_pe/base/6_final.sdc
+read_spef /work/sad_pe/build/orfs/results/asap7/sad_pe/base/6_final.spef
+read_vcd -scope sad_pe /work/sad_pe/build/pw_p1923/dump.vcd
+Annotated 36 pin activities.
+RTLP-ANNOTATION-BEGIN
+vcd            36
+unannotated   956
+RTLP-ANNOTATION-END
+RTLP-POWER-JSON-BEGIN
+{
+  "Sequential": {
+    "internal": 3.04e-05,
+    "switching": 7.15e-06,
+    "leakage": 2.42e-09,
+    "total": 3.76e-05
+  },
+  "Combinational": {
+    "internal": 1.36e-04,
+    "switching": 9.28e-05,
+    "leakage": 1.81e-08,
+    "total": 2.29e-04
+  },
+  "Clock": {
+    "internal": 3.36e-06,
+    "switching": 4.12e-06,
+    "leakage": 2.17e-10,
+    "total": 7.48e-06
+  },
+  "Macro": {
+    "internal": 0.00e+00,
+    "switching": 0.00e+00,
+    "leakage": 0.00e+00,
+    "total": 0.00e+00
+  },
+  "Pad": {
+    "internal": 0.00e+00,
+    "switching": 0.00e+00,
+    "leakage": 0.00e+00,
+    "total": 0.00e+00
+  },
+  "Total": {
+    "internal": 1.70e-04,
+    "switching": 1.04e-04,
+    "leakage": 2.08e-08,
+    "total": 2.74e-04
+  }
+}
+RTLP-POWER-JSON-END
+Elapsed time: 0:01.82[h:]min:sec. CPU time: user 1.64 sys 0.09 (94%). Peak memory: 166168KB.
+make: Leaving directory '/OpenROAD-flow-scripts/flow'

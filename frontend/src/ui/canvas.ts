@@ -4,6 +4,7 @@ import { defOf } from '../model/library';
 import { pinGeoms, pinGeom, bounds, transformOf, routeWire, pathD, distToPath, snap, shapeOf, type PinGeom } from '../model/geometry';
 import { pinKey } from '../model/netlist';
 import { fmt } from '../model/values';
+import { compile } from '../sim/engine';
 import type { Store } from './store';
 import { emptySel } from './store';
 
@@ -12,6 +13,8 @@ export type ValueMode = 'all' | 'hover' | 'none';
 export interface CanvasCallbacks {
   onEditBlock(id: string): void;
   onEditNote(id: string): void;
+  /** Double-click on an `instance` block: open the module it instantiates (DESIGN.md task 3). */
+  onEnterInstance(id: string): void;
   onContext?(e: PointerEvent, target: { block?: string; wire?: string }): void;
 }
 
@@ -31,6 +34,7 @@ export class Canvas {
   world: SVGGElement;
   layer: SVGGElement;
   tip: HTMLDivElement;
+  notlive: HTMLDivElement;
   view = { x: 60, y: 60, k: 1 };
   valueMode: ValueMode = 'all';
   dimUnchanged = false;
@@ -43,9 +47,11 @@ export class Canvas {
     container.innerHTML = `<svg class="schem" xmlns="http://www.w3.org/2000/svg" tabindex="0">
       <defs><pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" class="gridline"/></pattern></defs>
       <g class="world"><rect x="-100000" y="-100000" width="200000" height="200000" fill="url(#grid)"/><g class="layer"></g><g class="overlay"></g></g></svg>
-      <div class="tip" hidden></div>`;
+      <div class="tip" hidden></div>
+      <div class="notlive-hint" hidden>Not simulated — this sheet isn't reached from the top module. Open it from an instance to see live values.</div>`;
     this.svg = container.querySelector('svg')!; this.world = this.svg.querySelector('.world')!; this.layer = this.svg.querySelector('.layer')!;
     this.tip = container.querySelector('.tip')!;
+    this.notlive = container.querySelector('.notlive-hint')!;
     this.bind();
   }
 
@@ -70,10 +76,17 @@ export class Canvas {
 
   // ---------- rendering ----------
   render(): void {
-    const { store } = this; const m = store.module; const sim = store.sim; const c = sim.compiled;
-    const vals = sim.values(); const prev = sim.cur > 0 ? sim.values(sim.cur - 1) : null;
-    const pv = (pin: string): bigint => { const i = c.pinIndex.get(pin); return i === undefined ? 0n : vals[i]; };
-    const changed = (pin: string): boolean => { if (!prev) return false; const i = c.pinIndex.get(pin); return i !== undefined && prev[i] !== vals[i]; };
+    const { store } = this; const m = store.module;
+    // Structure (netlist, ports, problems) always comes from the sheet actually open, hierarchical or not.
+    // Values only come from the simulator when this sheet is on the live, flattened instance tree under
+    // `top` (DESIGN.md task 3); otherwise every pin reads as unknown and the sheet is drawn "not simulated".
+    const c = compile(m);
+    const active = store.simActive;
+    const vals = active ? store.sim.values() : [];
+    const prev = active && store.sim.cur > 0 ? store.sim.values(store.sim.cur - 1) : null;
+    const pv = (pin: string): bigint => { if (!active) return 0n; const key = store.hierPin(pin); const i = key === null ? undefined : store.sim.compiled.pinIndex.get(key); return i === undefined ? 0n : vals[i]; };
+    const changed = (pin: string): boolean => { if (!active || !prev) return false; const key = store.hierPin(pin); const i = key === null ? undefined : store.sim.compiled.pinIndex.get(key); return i !== undefined && prev[i] !== vals[i]; };
+    const stateOf = (id: string): unknown => { if (!active) return undefined; const key = store.hierBlock(id); return key === null ? undefined : store.sim.frame.states.get(key); };
     const sel = store.sel;
     let h = '';
     const geomCache = new Map<string, PinGeom[]>();
@@ -121,7 +134,7 @@ export class Canvas {
         h += `<circle class="port${hot ? ' hi' : ''}${this.hoverPin === key ? ' hover' : ''}" cx="${g.x}" cy="${g.y}" r="4.5" data-b="${b.id}" data-p="${g.def.name}" data-dir="${g.def.dir}"/>`;
         if (g.def.label) { const lx = g.side === 'l' ? g.bx + 4 : g.side === 'r' ? g.bx - 4 : g.bx; const ly = g.side === 't' ? g.by + 11 : g.side === 'b' ? g.by - 4 : g.by + 4; h += `<text class="p" x="${lx}" y="${ly}" text-anchor="${g.side === 'l' ? 'start' : g.side === 'r' ? 'end' : 'middle'}">${esc(g.def.label)}</text>`; }
       }
-      if (d.inner) { const inner = d.inner(b.params, s, sim.frame.states.get(b.id), ins, outs); h += `<g transform="translate(${bb.x + bb.w / 2 - s.w / 2} ${bb.y + bb.h / 2 - s.h / 2})">${inner}</g>`; }
+      if (d.inner) { const inner = d.inner(b.params, s, stateOf(b.id), ins, outs); h += `<g transform="translate(${bb.x + bb.w / 2 - s.w / 2} ${bb.y + bb.h / 2 - s.h / 2})">${inner}</g>`; }
       if (b.label) h += `<text class="l" x="${bb.x + bb.w / 2}" y="${bb.y + bb.h + 14 + (pg.some(g => g.side === 'b') ? 12 : 0)}" text-anchor="middle">${esc(b.label)}</text>`;
       if (locked) h += `<text class="lock" x="${bb.x + bb.w - 2}" y="${bb.y - 3}" text-anchor="end">🔒</text>`;
       h += `</g>`;
@@ -135,6 +148,8 @@ export class Canvas {
     this.layer.innerHTML = h;
     this.world.setAttribute('transform', `translate(${this.view.x} ${this.view.y}) scale(${this.view.k})`);
     this.container.classList.toggle('empty', m.blocks.length === 0 && m.notes.length === 0);
+    this.container.classList.toggle('not-live', !active);
+    this.notlive.hidden = active;
   }
 
   // ---------- interaction ----------
@@ -239,7 +254,10 @@ export class Canvas {
 
   private dbl(e: MouseEvent): void {
     const t = e.target as Element; const blk = (t.closest('.blk') as SVGElement | null)?.dataset.b; const note = (t.closest('.note') as SVGElement | null)?.dataset.n;
-    if (blk) this.cb.onEditBlock(blk); else if (note) this.cb.onEditNote(note);
+    if (blk) {
+      const b = this.store.module.blocks.find(x => x.id === blk);
+      if (b?.type === 'instance') this.cb.onEnterInstance(blk); else this.cb.onEditBlock(blk);
+    } else if (note) this.cb.onEditNote(note);
   }
 
   private nearestPin(w: Point, dir: 'in' | 'out'): { b: string; p: string; key: string } | null {
@@ -249,13 +267,15 @@ export class Canvas {
   }
 
   private hover(e: PointerEvent, w: Point): void {
-    const tg = this.target(e); const c = this.store.sim.compiled;
+    const tg = this.target(e); const { store } = this; const c = compile(store.module);
     let pin: string | null = null, wire: string | null = null, text = '';
     if (tg.port) { pin = `${tg.port.dataset.b}.${tg.port.dataset.p}`; }
     else if (tg.wire) { wire = tg.wire; const wr = this.store.module.wires.find(x => x.id === wire); if (wr) pin = pinKey(wr.from); }
     if (pin) {
-      const net = c.netlist.byPin.get(pin); const drv = net?.drivers[0]; const key = drv ? pinKey(drv) : pin; const v = this.store.sim.value(key); const wdt = net?.width ?? 1;
-      text = `<b>${esc(net?.name || pin)}</b> · ${wdt} bit${wdt > 1 ? 's' : ''}<br>${wdt > 1 ? `dec ${v} · hex ${fmt(v, wdt, 'hex')} · bin ${fmt(v, wdt, 'bin')}` : `value ${v}`}${net && net.drivers.length === 0 ? '<br><i>undriven</i>' : ''}`;
+      const net = c.netlist.byPin.get(pin); const drv = net?.drivers[0]; const key = drv ? pinKey(drv) : pin; const wdt = net?.width ?? 1;
+      const hkey = store.simActive ? store.hierPin(key) : null;
+      const v = hkey ? store.sim.value(hkey) : 0n;
+      text = `<b>${esc(net?.name || pin)}</b> · ${wdt} bit${wdt > 1 ? 's' : ''}<br>${store.simActive ? (wdt > 1 ? `dec ${v} · hex ${fmt(v, wdt, 'hex')} · bin ${fmt(v, wdt, 'bin')}` : `value ${v}`) : '<i>not simulated</i>'}${net && net.drivers.length === 0 ? '<br><i>undriven</i>' : ''}`;
     }
     if (pin !== this.hoverPin || wire !== this.hoverWire) { this.hoverPin = pin; this.hoverWire = wire; this.render(); }
     if (text) { this.tip.innerHTML = text; this.tip.hidden = false; const r = this.container.getBoundingClientRect(); this.tip.style.left = `${e.clientX - r.left + 14}px`; this.tip.style.top = `${e.clientY - r.top + 14}px`; }

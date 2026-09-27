@@ -1,8 +1,11 @@
 """Stdlib-only local host for RTL Playground.
 
 Serves the built front end from ``static/`` and a small JSON API under ``/api``:
-a sandboxed file API rooted at the launch directory, and optional Yosys
-endpoints backed by ``yowasp-yosys`` when that extra is installed.
+a sandboxed file API rooted at the launch directory, optional Yosys
+endpoints backed by ``yowasp-yosys`` when that extra is installed, the
+project API that runs open-source tools as background jobs (DESIGN.md
+section 13), and the Surfer waveform viewer served read-only from a
+per-user cache at ``/surfer/`` once downloaded (see rtl_playground.surfer).
 
 Security model (see DESIGN.md section 10): the server binds to loopback only,
 every ``/api`` request must carry a loopback ``Host`` (and matching ``Origin``
@@ -23,6 +26,7 @@ import io
 import json
 import os
 import secrets
+import shutil
 import socket
 import stat
 import sys
@@ -36,13 +40,33 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from rtl_playground import __version__
+from rtl_playground import __version__, flows, surfer
+from rtl_playground.jobs import BusyError, Command, HostStep, Job, JobFailed, JobManager
+from rtl_playground.project import (
+    PLATFORMS,
+    PROJECT_FILE,
+    ProjectError,
+    create_from_template,
+    find_projects,
+    load_project,
+    templates,
+)
+from rtl_playground.toolchain import ToolchainCache
 
 # Files the file API is willing to list, read, write and delete.
-ALLOWED_SUFFIXES = frozenset({".rtlp", ".json", ".sv", ".v", ".mem", ".hex", ".vcd", ".md"})
+ALLOWED_SUFFIXES = frozenset({
+    ".rtlp", ".json", ".sv", ".svh", ".v", ".vh", ".mem", ".hex", ".vcd", ".md",
+    ".py", ".sdc", ".tcl", ".mk", ".txt", ".log", ".rpt",
+})
+# Read-only binary artifacts the tools produce, served as-is by /api/raw.
+RAW_SUFFIXES = frozenset({".png", ".webp", ".svg", ".fst", ".vcd", ".gds", ".def", ".spef", ".odb", ".json",
+                          ".rpt", ".log", ".txt", ".v", ".sv", ".sdc", ".xml", ".html"})
+MAX_RAW_BYTES = 512 * 1024 * 1024
 SKIP_DIRS = frozenset({"node_modules", ".venv", "__pycache__"})
 MAX_BODY_BYTES = 32 * 1024 * 1024
 HDL_TIMEOUT_S = 60.0
+# Where the (lazily downloaded) Surfer waveform viewer is served; see rtl_playground.surfer.
+SURFER_ROUTE = "/surfer"
 
 MIME_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -63,6 +87,9 @@ MIME_TYPES = {
     ".md": "text/markdown; charset=utf-8",
     ".txt": "text/plain; charset=utf-8",
     ".png": "image/png",
+    ".webp": "image/webp",
+    ".py": "text/x-python; charset=utf-8",
+    ".xml": "application/xml; charset=utf-8",
     ".ico": "image/x-icon",
     ".woff": "font/woff",
     ".woff2": "font/woff2",
@@ -251,8 +278,6 @@ def run_yosys_script(
 
 
 def _cleanup_workdir(workdir: Path) -> None:
-    import shutil
-
     shutil.rmtree(workdir, ignore_errors=True)
 
 
@@ -322,7 +347,14 @@ class PlaygroundServer(ThreadingHTTPServer):
         self.token = token or secrets.token_hex(16)
         self.debug = debug
         self.hdl_lock = threading.Lock()
+        self.surfer_lock = threading.Lock()
+        self.toolchain = ToolchainCache()
+        self.jobs = JobManager(lambda: self.toolchain.get())
         super().__init__(("127.0.0.1", port), PlaygroundHandler)
+
+    def server_close(self) -> None:
+        self.jobs.cancel_all()
+        super().server_close()
 
     @property
     def port(self) -> int:
@@ -404,16 +436,63 @@ class PlaygroundHandler(SimpleHTTPRequestHandler):
         return urlsplit(self.path).path
 
     def do_GET(self) -> None:
-        if self._url_path().startswith("/api/") or self._url_path() == "/api":
+        url_path = self._url_path()
+        if url_path.startswith("/api/") or url_path == "/api":
             self._dispatch_api()
+            return
+        if url_path == SURFER_ROUTE or url_path.startswith(SURFER_ROUTE + "/"):
+            self._serve_surfer(url_path)
             return
         self._serve_static()
 
     def do_HEAD(self) -> None:
-        if self._url_path().startswith("/api"):
+        url_path = self._url_path()
+        if url_path.startswith("/api"):
             self._send_json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"})
             return
+        if url_path == SURFER_ROUTE or url_path.startswith(SURFER_ROUTE + "/"):
+            self._serve_surfer(url_path)
+            return
         self._serve_static()
+
+    def _serve_surfer(self, url_path: str) -> None:
+        """Serve the installed Surfer web build read-only. Not under ``static_dir``: it is
+        downloaded per-user into a cache directory, not shipped in the wheel (see surfer.py)."""
+        if surfer.installed_version() is None:
+            self.send_error(HTTPStatus.NOT_FOUND, "Surfer is not installed; POST /api/surfer/install")
+            return
+        root = surfer.surfer_dir()
+        rel = url_path[len(SURFER_ROUTE):].lstrip("/") or "index.html"
+        if "\x00" in rel:
+            self.send_error(HTTPStatus.FORBIDDEN, "invalid path")
+            return
+        parts = [p for p in rel.split("/") if p not in ("", ".")]
+        if any(p == ".." for p in parts):
+            self.send_error(HTTPStatus.FORBIDDEN, "invalid path")
+            return
+        target = root.joinpath(*parts) if parts else root / "index.html"
+        try:
+            resolved = target.resolve()
+            root_resolved = root.resolve()
+        except OSError:
+            self.send_error(HTTPStatus.NOT_FOUND, "File not found")
+            return
+        if resolved != root_resolved and root_resolved not in resolved.parents:
+            self.send_error(HTTPStatus.FORBIDDEN, "invalid path")
+            return
+        if not resolved.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND, "File not found")
+            return
+        ctype = MIME_TYPES.get(resolved.suffix.lower(), "application/octet-stream")
+        size = resolved.stat().st_size
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(size))
+        self._no_store = resolved.name == "index.html"
+        self.end_headers()
+        if self.command != "HEAD":
+            with resolved.open("rb") as fh:
+                shutil.copyfileobj(fh, self.wfile)
 
     def _serve_static(self) -> None:
         static_dir = self.server.static_dir
@@ -546,7 +625,8 @@ class PlaygroundHandler(SimpleHTTPRequestHandler):
                 body = self._read_json_body()
                 body_read = True
             status, payload = handler(self, query, body)
-            self._send_json(status, payload)
+            if status:  # 0 means the handler already wrote the response
+                self._send_json(status, payload)
         except ApiError as exc:
             if not body_read:
                 self._drain_body()
@@ -682,6 +762,153 @@ class PlaygroundHandler(SimpleHTTPRequestHandler):
         with self.server.hdl_lock:
             return 200, hdl_lint(files)
 
+    # ---- projects and jobs --------------------------------------------------------- #
+
+    def _project(self, rel: str | None):  # noqa: ANN202
+        folder = self.server.resolve(rel or "", allow_root=True)
+        if not folder.is_dir():
+            raise ApiError(404, "project folder not found")
+        try:
+            return load_project(folder)
+        except ProjectError as exc:
+            raise ApiError(422, "the project file has problems", problems=exc.problems) from exc
+
+    def api_tools(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
+        tc = self.server.toolchain.get(refresh=query.get("refresh") == "1")
+        info = tc.describe()
+        info["platforms"] = [
+            {"name": p.name, "title": p.title, "timeUnit": p.time_unit, "predictive": p.predictive, "note": p.note}
+            for p in PLATFORMS.values()
+        ]
+        info["stages"] = list(flows.FLOW_STAGES)
+        return 200, info
+
+    def api_projects(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
+        out = []
+        for folder in find_projects(self.server.root):
+            rel = "" if folder == self.server.root else self.server.relpath(folder)
+            try:
+                p = load_project(folder)
+                out.append({"path": rel, "name": p.name, "top": p.top, "problems": []})
+            except ProjectError as exc:
+                out.append({"path": rel, "name": folder.name, "top": None, "problems": exc.problems})
+        return 200, {"projects": out}
+
+    def api_project(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
+        rel = query.get("path", "")
+        project = self._project(rel)
+        summary = project.summary()
+        summary["path"] = rel
+        summary["file"] = (f"{rel}/" if rel else "") + PROJECT_FILE
+        return 200, summary
+
+    def api_templates(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
+        return 200, {"templates": [{"name": k, "title": v} for k, v in templates().items()]}
+
+    def api_project_new(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
+        rel = body.get("path")
+        template = body.get("template", "sad_pe")
+        if not isinstance(rel, str) or not rel.strip() or not isinstance(template, str):
+            raise ApiError(400, "body must hold 'path' (a new folder) and 'template'")
+        dest = self.server.resolve(rel.strip())
+        try:
+            written = create_from_template(dest, template)
+        except ProjectError as exc:
+            raise ApiError(409, "; ".join(exc.problems)) from exc
+        return 201, {"path": self.server.relpath(dest), "files": [self.server.relpath(p) for p in written]}
+
+    def api_jobs_list(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
+        return 200, {"jobs": [j.to_json() for j in self.server.jobs.list()]}
+
+    def api_jobs_submit(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
+        rel = body.get("project", "")
+        kind = body.get("kind")
+        options = body.get("options") or {}
+        if not isinstance(rel, str) or not isinstance(kind, str) or not isinstance(options, dict):
+            raise ApiError(400, "body must hold 'project' (string), 'kind' (string) and optional 'options' (object)")
+        if kind not in (*flows.JOB_KINDS, "setup"):
+            raise ApiError(400, f"kind must be one of {', '.join(flows.JOB_KINDS)} or setup")
+        tc = self.server.toolchain.get()
+        if not tc.available:
+            raise ApiError(503, "no toolchain available", reason=tc.reason)
+        job_id = self.server.jobs.new_id()
+        if kind == "setup":
+            if tc.mode != "docker":
+                raise ApiError(400, "setup downloads the tool image; native tools need no setup")
+            steps = [Command(" ".join(c[1:3]), c, self.server.root, on_host=True) for c in tc.setup_commands()]
+            steps.append(HostStep("Check the tools", lambda job: self.server.toolchain.get(refresh=True)))
+            job = Job(id=job_id, kind=kind, title=f"Download {tc.image}", project=rel, root=self.server.root,
+                      steps=steps)
+        else:
+            if tc.mode == "docker" and not tc.image_ready:
+                raise ApiError(503, "the tool image is not downloaded yet",
+                               reason=f"{tc.image} is not downloaded yet: click Set up tools (a one-time download of several GB)")
+            project = self._project(rel)
+            try:
+                title, steps = flows.build_steps(kind, project, tc, self.server.root, options)
+            except (ValueError, JobFailed) as exc:
+                raise ApiError(400, str(exc)) from exc
+            job = Job(id=job_id, kind=kind, title=title, project=rel, root=self.server.root, steps=steps,
+                      log_path=project.build / "jobs" / f"{job_id}.log")
+        try:
+            self.server.jobs.submit(job)
+        except BusyError as exc:
+            raise ApiError(409, str(exc), job=exc.job.to_json()) from exc
+        return 202, job.to_json(since=0)
+
+    def api_job(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
+        job = self.server.jobs.get(query.get("id", ""))
+        if job is None:
+            raise ApiError(404, "no such job")
+        try:
+            since = int(query.get("since", "0"))
+        except ValueError as exc:
+            raise ApiError(400, "since must be an integer") from exc
+        return 200, job.to_json(since=max(since, 0))
+
+    def api_job_cancel(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
+        job = self.server.jobs.cancel(query.get("id", ""))
+        if job is None:
+            raise ApiError(404, "no such job")
+        return 200, job.to_json()
+
+    # ---- Surfer (the waveform viewer) --------------------------------------------- #
+
+    def api_surfer(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
+        return 200, surfer.describe()
+
+    def api_surfer_install(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
+        # Synchronous, not a JobManager job: the download is ~5 MB and takes a few seconds,
+        # and routing it through the single-job-at-a-time project job manager would make it
+        # contend with (or be blocked by) an unrelated synthesis or test run, for no benefit
+        # since there is nothing project-scoped or cancellable worth a log stream here.
+        with self.server.surfer_lock:
+            if surfer.installed_version() is not None:
+                return 200, surfer.describe()
+            try:
+                surfer.install()
+            except surfer.SurferError as exc:
+                raise ApiError(502, str(exc)) from exc
+            return 200, surfer.describe()
+
+    def api_raw(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
+        """Serve a tool artifact (layout image, waveform, report) as bytes. Read-only."""
+        target = self.server.resolve(query.get("path", ""))
+        if target.suffix.lower() not in RAW_SUFFIXES or not target.is_file():
+            raise ApiError(404, "artifact not found")
+        size = target.stat().st_size
+        if size > MAX_RAW_BYTES:
+            raise ApiError(413, "artifact too large to serve; open it from disk")
+        ctype = MIME_TYPES.get(target.suffix.lower(), "application/octet-stream")
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(size))
+        self._no_store = True
+        self.end_headers()
+        with target.open("rb") as fh:
+            shutil.copyfileobj(fh, self.wfile)
+        return 0, None
+
 
 API_ROUTES = {
     ("GET", "/api/version"): PlaygroundHandler.api_version,
@@ -691,6 +918,18 @@ API_ROUTES = {
     ("DELETE", "/api/file"): PlaygroundHandler.api_file_delete,
     ("POST", "/api/hdl/elaborate"): PlaygroundHandler.api_hdl_elaborate,
     ("POST", "/api/hdl/lint"): PlaygroundHandler.api_hdl_lint,
+    ("GET", "/api/tools"): PlaygroundHandler.api_tools,
+    ("GET", "/api/projects"): PlaygroundHandler.api_projects,
+    ("GET", "/api/project"): PlaygroundHandler.api_project,
+    ("GET", "/api/templates"): PlaygroundHandler.api_templates,
+    ("POST", "/api/project/new"): PlaygroundHandler.api_project_new,
+    ("GET", "/api/jobs"): PlaygroundHandler.api_jobs_list,
+    ("POST", "/api/jobs"): PlaygroundHandler.api_jobs_submit,
+    ("GET", "/api/job"): PlaygroundHandler.api_job,
+    ("POST", "/api/job/cancel"): PlaygroundHandler.api_job_cancel,
+    ("GET", "/api/raw"): PlaygroundHandler.api_raw,
+    ("GET", "/api/surfer"): PlaygroundHandler.api_surfer,
+    ("POST", "/api/surfer/install"): PlaygroundHandler.api_surfer_install,
 }
 
 

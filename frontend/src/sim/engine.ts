@@ -24,20 +24,27 @@ export interface Frame {
   rst: boolean;
 }
 
-export function compile(m: Module): Compiled {
+export function compile(m: Module, extraProblems: Problem[] = []): Compiled {
   const netlist = buildNetlist(m);
-  const problems = [...netlist.problems];
+  const problems = [...extraProblems, ...netlist.problems];
   const pinKeys: string[] = [];
   const pinIndex = new Map<string, number>();
   for (const b of m.blocks) for (const p of netlist.ports.get(b.id)!) { pinIndex.set(`${b.id}.${p.name}`, pinKeys.length); pinKeys.push(`${b.id}.${p.name}`); }
 
   // Dependency graph among blocks whose outputs depend on inputs.
   const dependsOnInputs = (b: Block) => { const k = defOf(b.type).kind; return k === 'comb' || k === 'mixed' || k === 'alias'; };
+  // A 'mixed' block (e.g. a memory) may declare `depPorts`: only those input ports feed its eval() output this
+  // cycle (e.g. a RAM/register-file's read address), so only they create an ordering edge. Every other input
+  // (e.g. write data/address, which only ever affects next()'s state, never eval()) is treated as if the block
+  // were 'seq' for ordering purposes — exactly like a register's D input already is — so a normal read-modify
+  // write-back path (a memory's own read feeding logic that feeds its own write data) is not mistaken for a
+  // combinational loop. Blocks that don't declare `depPorts` keep depending on every input, as before.
+  const dependsOnPort = (b: Block, port: string): boolean => { if (!dependsOnInputs(b)) return false; const dp = defOf(b.type).depPorts; return dp ? dp(b.params).includes(port) : true; };
   const indeg = new Map<string, number>(); const succ = new Map<string, string[]>();
   for (const b of m.blocks) { indeg.set(b.id, 0); succ.set(b.id, []); }
   for (const net of netlist.nets) {
     const drv = net.drivers[0]; if (!drv) continue;
-    for (const l of net.loads) { const lb = netlist.blocks.get(l.b)!; if (!dependsOnInputs(lb) || l.b === drv.b && !dependsOnInputs(lb)) continue; if (l.b === drv.b) { indeg.set(l.b, indeg.get(l.b)! + 1); succ.get(drv.b)!.push(l.b); continue; } succ.get(drv.b)!.push(l.b); indeg.set(l.b, indeg.get(l.b)! + 1); }
+    for (const l of net.loads) { const lb = netlist.blocks.get(l.b)!; if (!dependsOnPort(lb, l.p)) continue; if (l.b === drv.b) { indeg.set(l.b, indeg.get(l.b)! + 1); succ.get(drv.b)!.push(l.b); continue; } succ.get(drv.b)!.push(l.b); indeg.set(l.b, indeg.get(l.b)! + 1); }
     // label pins: labels are alias blocks, treat driver -> label as dependency too (handled: label loads are in net.pins not loads)
     for (const p of net.pins) { const pb = netlist.blocks.get(p.b)!; if (pb.type === 'label' && p.b !== drv.b) { succ.get(drv.b)!.push(p.b); indeg.set(p.b, indeg.get(p.b)! + 1); } }
   }
@@ -84,8 +91,11 @@ export class Simulator {
   cur = 0;
   maxFrames = 20000;
   private cache = new Map<number, bigint[]>();
+  /** Problems that don't come from this module's own netlist (e.g. hierarchy-wide recursion), carried
+   * through `recompile` so a design-wide check survives a per-cycle rebuild. */
+  private extraProblems: Problem[];
 
-  constructor(m: Module) { this.compiled = compile(m); this.powerOn(); }
+  constructor(m: Module, extraProblems: Problem[] = []) { this.extraProblems = extraProblems; this.compiled = compile(m, extraProblems); this.powerOn(); }
 
   get module(): Module { return this.compiled.module; }
   get live(): boolean { return this.cur === this.frames.length - 1; }
@@ -96,8 +106,9 @@ export class Simulator {
   set rst(v: boolean) { this.frames[this.frames.length - 1].rst = v; this.cache.delete(this.frames.length - 1); }
 
   /** Rebuild after the module changed. Keeps history; new blocks get fresh state. */
-  recompile(m: Module): void {
-    this.compiled = compile(m);
+  recompile(m: Module, extraProblems: Problem[] = this.extraProblems): void {
+    this.extraProblems = extraProblems;
+    this.compiled = compile(m, extraProblems);
     this.cache.clear();
     for (const f of this.frames) for (const b of m.blocks) if (!f.states.has(b.id)) f.states.set(b.id, initState(b));
   }

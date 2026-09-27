@@ -62,6 +62,33 @@ Without it the editor, simulator, and SystemVerilog *export* still work; only
 `Import HDL` and `Lint` report that Yosys is not installed. The first Yosys
 call compiles the WebAssembly module and takes a few seconds.
 
+### Projects: SystemVerilog, cocotb tests, synthesis, place and route
+
+The **Project** tab (top left) is for designs written in SystemVerilog, such
+as a final project. A project is a folder with an `rtlp-project.json` that
+names the top module, the cocotb testbenches, the timing constraints (clock
+period, setup and hold uncertainty, input and output delay) and the physical
+design settings. Click **New project…** to start from the `sad_pe` template,
+a motion-estimator processing element with tests against a Python reference
+model and the course's 520 MHz constraints.
+
+From there **Lint** runs Verilator, **Test** runs the cocotb tests on
+Verilator (waves are saved as FST for [Surfer](https://surfer-project.org) or
+GTKWave), and **Synthesize** / **Implement** run
+[OpenROAD-flow-scripts](https://github.com/The-OpenROAD-Project/OpenROAD-flow-scripts)
+on the ASAP7 predictive 7nm kit by default (SkyWater 130, GF180, IHP SG13G2
+and Nangate45 are also available). The Reports tab shows setup and hold
+slack, achievable frequency, cell area, power and the routed layout; every
+generated file is under the project's `build/` folder.
+
+These tools run in one Docker image that the app downloads for you: install
+[Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker
+Engine on Linux), start the app, open the Project tab and click **Set up
+tools** once (a few GB). On a machine where you cannot install Docker, start
+the app with `uvx --with udocker …` instead; udocker runs the same image as an
+ordinary user. Linux users with the tools installed natively can set
+`RTLP_TOOLCHAIN=native`, `RTLP_TOOLS_PATH` and `RTLP_ORFS_FLOW` instead.
+
 ## Developer setup
 
 You need Python 3.10+, [uv](https://docs.astral.sh/uv/), and Node 22.
@@ -110,11 +137,15 @@ CLAUDE.md              working notes for AI-assisted development
 pyproject.toml         hatchling package `rtl-playground` (src layout, no runtime deps)
 hatch_build.py         wheel hook: builds the front end when static/ is missing
 src/rtl_playground/    Python host: cli.py, server.py; static/ is the built front end
+                       project.py, toolchain.py, jobs.py, flows.py, reports.py: the Project view's
+                       tool runner; templates/ starter projects; tool_scripts/ run inside the tools
+docker/                the tools image (ORFS + Verilator + cocotb), built by tools-image.yml
 frontend/src/model     design model, block library, netlist, geometry, serialize
 frontend/src/sim       simulator and test runner
 frontend/src/ui        store, canvas, panels, waveform
 frontend/src/host      client for the Python host API
-frontend/scripts/      gen-examples.ts, smoke.mjs
+frontend/src/project   Project view: CodeMirror editor, constraints form, jobs, reports
+frontend/scripts/      gen-examples.ts, smoke.mjs, project-e2e.mjs
 examples/              shipped .rtlp designs (generated)
 tests/                 pytest suite for the host
 legacy/                the single-file prototype this project replaces

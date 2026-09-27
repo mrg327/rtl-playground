@@ -42,4 +42,64 @@ describe('library', () => {
     expect(seq.eval([], qp, { idx: 1 })).toEqual([1n]); expect(seq.eval([], qp, { idx: 4 })).toEqual([0n]); expect(seq.eval([], { ...qp, repeat: true }, { idx: 5 })).toEqual([1n]); expect(seq.next!([], qp, { idx: 2 }, false)).toEqual({ idx: 3 }); expect(seq.next!([], qp, { idx: 2 }, true)).toEqual({ idx: 0 });
     expect(ev('in', [], { width: 4, value: '9' })).toEqual([9n]); expect(ev('const', [], { width: 8, value: "8'hF0" })).toEqual([240n]);
   });
+  it('memory: ram async/sync read, write-then-read (read-before-write), COW, reset leaves contents', () => {
+    const ram = defOf('ram');
+    const pAsync = { ...defaultParams('ram'), width: 8, depth: 4, readStyle: 'async', contents: '10 20 30 40' };
+    const s0 = ram.init!(pAsync) as { mem: bigint[] };
+    expect(s0.mem).toEqual([10n, 20n, 30n, 40n]);
+    // async read is purely combinational on raddr, ignoring d/waddr/we
+    expect(ram.eval([0n, 0n, 0n, 2n], pAsync, s0)).toEqual([30n]);
+    // write address 2 while reading address 2 in the same cycle: eval() (this cycle's output) still sees the OLD value
+    const ins = [99n, 2n, 1n, 2n]; // d, waddr, we, raddr
+    expect(ram.eval(ins, pAsync, s0)).toEqual([30n]);
+    const s1 = ram.next!(ins, pAsync, s0, false) as { mem: bigint[] };
+    expect(s1.mem).toEqual([10n, 20n, 99n, 40n]); // now written
+    expect(s0.mem).toEqual([10n, 20n, 30n, 40n]); // old snapshot untouched (copy-on-write)
+    expect(ram.eval([0n, 0n, 0n, 2n], pAsync, s1)).toEqual([99n]); // next cycle's read sees the new value
+    // a cycle with no write shares the same mem array reference (no copy)
+    const s2 = ram.next!([0n, 0n, 0n, 0n], pAsync, s1, false) as { mem: bigint[] };
+    expect(s2.mem).toBe(s1.mem);
+    // reset does not clear memory contents
+    const s3 = ram.next!([0n, 0n, 0n, 0n], pAsync, s1, true) as { mem: bigint[] };
+    expect(s3.mem).toBe(s1.mem);
+
+    const pSync = { ...pAsync, readStyle: 'sync' };
+    const t0 = ram.init!(pSync) as { mem: bigint[]; rq: bigint };
+    expect(t0.rq).toBe(0n);
+    expect(ram.eval([0n, 0n, 0n, 2n], pSync, t0)).toEqual([0n]); // registered read: nothing latched yet
+    const t1 = ram.next!([0n, 0n, 0n, 2n], pSync, t0, false) as { mem: bigint[]; rq: bigint };
+    expect(t1.rq).toBe(30n); // latched this edge from the old contents
+    expect(ram.eval([0n, 0n, 0n, 0n], pSync, t1)).toEqual([30n]);
+    const t2 = ram.next!([0n, 0n, 0n, 0n], pSync, t1, true) as { mem: bigint[]; rq: bigint };
+    expect(t2.rq).toBe(0n); // the registered read output resets...
+    expect(t2.mem).toBe(t1.mem); // ...but the memory array itself does not
+    // out-of-range addresses (depth is not a power of two of every addr width) read as 0 and never write
+    const pOdd = { ...defaultParams('ram'), width: 8, depth: 3, readStyle: 'async', contents: '1 2 3' };
+    const u0 = ram.init!(pOdd) as { mem: bigint[] };
+    expect(ram.eval([0n, 0n, 0n, 3n], pOdd, u0)).toEqual([0n]);
+    const u1 = ram.next!([9n, 3n, 1n, 0n], pOdd, u0, false) as { mem: bigint[] };
+    expect(u1.mem).toBe(u0.mem); // write to an out-of-range address is a no-op, so no copy either
+  });
+  it('memory: rom is read-only and never changes, sync adds one cycle of latency', () => {
+    const rom = defOf('rom');
+    const p = { ...defaultParams('rom'), width: 4, depth: 4, readStyle: 'sync', contents: '5 6 7 8' };
+    const s0 = rom.init!(p) as { mem: bigint[]; rq: bigint };
+    const s1 = rom.next!([1n], p, s0, false) as { mem: bigint[]; rq: bigint };
+    expect(s1.mem).toBe(s0.mem); // a ROM's contents never copy: there is no write path at all
+    expect(ev('rom', [1n], { width: 4, depth: 4, readStyle: 'sync', contents: '5 6 7 8' })).toEqual([0n]); // nothing latched yet
+    expect(rom.eval([1n], p, s1)).toEqual([6n]);
+  });
+  it('memory: register file has two async read ports, reg0-hardwired-to-zero is optional', () => {
+    const rf = defOf('regfile');
+    const p = { ...defaultParams('regfile'), width: 32, depth: 4, zeroReg: true, contents: '0 11 22 33' };
+    const s0 = rf.init!(p) as { mem: bigint[] };
+    expect(s0.mem[0]).toBe(0n); // forced to zero even though contents said otherwise
+    expect(rf.eval([0n, 0n, 0n, 2n, 3n], p, s0)).toEqual([22n, 33n]);
+    expect(rf.eval([0n, 0n, 0n, 0n, 0n], p, s0)).toEqual([0n, 0n]);
+    const s1 = rf.next!([99n, 0n, 1n, 0n, 0n], p, s0, false) as { mem: bigint[] };
+    expect(s1.mem).toBe(s0.mem); // write to the hard-wired-zero register is dropped, so no copy
+    const s2 = rf.next!([99n, 2n, 1n, 0n, 0n], p, s0, false) as { mem: bigint[] };
+    expect(s2.mem[2]).toBe(99n);
+    expect(rf.eval([0n, 0n, 0n, 2n, 0n], p, s0)).toEqual([22n, 0n]); // same-cycle write-then-read sees the OLD value
+  });
 });

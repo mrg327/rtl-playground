@@ -42,6 +42,11 @@ export interface BlockDef {
   body(p: Params, s: Shape): string;
   /** Text drawn inside the body (value, symbol). */
   inner?(p: Params, s: Shape, state: unknown, ins: bigint[], outs: bigint[]): string;
+  /** For a 'mixed' block only: which input port names actually feed eval()'s output this cycle (e.g. a
+   * memory's read address). Ports left out (e.g. write data/address, which only ever affect next()'s state)
+   * get no dependency-ordering edge, the same as any input on a 'seq' block — see src/sim/engine.ts compile().
+   * Omit for "every input" (the default for every other comb/mixed block). */
+  depPorts?(p: Params): string[];
   eval(ins: bigint[], p: Params, state: unknown): bigint[];
   init?(p: Params): unknown;
   /** State after a rising clock edge. `rst` is the global synchronous reset. */
@@ -372,9 +377,160 @@ def({
   help: 'Shifts in one bit per clock; bit 0 is the newest. out is the oldest bit.',
 });
 
+// ---------- Memory ----------
+// Semantics mirror Yosys $mem_v2: a synchronous write port (write-enable gated), and either a combinational
+// (async) or one-cycle-registered (sync) read. Both read and write are driven by the same rising edge, so a
+// read of the address just written in the same cycle sees the OLD value (read-before-write) — the eval()/next()
+// split below gives this for free: eval() always reads from the state carried over from the previous edge, and
+// next() computes the post-write state for the frame that starts at the next edge. Reset does NOT clear memory
+// contents (like a real SRAM); only a sync read's own registered output resets, because that output is a
+// genuine flip-flop. State is `{ mem, rq, rq2 }`: `mem` is a copy-on-write bigint array — next() returns the
+// SAME array reference when no write happens this cycle (the common case) and only allocates a new array (an
+// O(depth) copy) on a cycle that actually writes, so the simulator's per-cycle frame history stays cheap even
+// at max depth (4096) and max history (20000 frames) unless the design writes almost every cycle.
+export interface MemState { mem: bigint[]; rq?: bigint; rq2?: bigint }
+export function memDepth(p: Params, max = 4096): number { return Math.max(1, Math.min(max, num(p, 'depth', 256))); }
+export function memAddrWidth(depth: number): number { return log2(depth); }
+function memContents(p: Params, w: number, depth: number): bigint[] {
+  const vals = parseList(str(p, 'contents', ''), w);
+  const out = new Array<bigint>(depth).fill(0n);
+  for (let i = 0; i < Math.min(vals.length, depth); i++) out[i] = vals[i];
+  return out;
+}
+const memSym = (t: string, p: Params, s: Shape, depth: number): string => sym(t, s, 16, -10) + val(`${depth}×${ioWidth(p)}`, s, 14, 's');
+
+def({
+  type: 'ram', name: 'Sync RAM', group: 'Memory', short: 'ram', kind: 'mixed', trace: true, traceKey: 'q',
+  params: [
+    P.width(8),
+    { key: 'depth', label: 'Depth (words)', kind: 'int', default: 256, min: 1, max: 4096 },
+    { key: 'readStyle', label: 'Read', kind: 'enum', default: 'sync', options: [{ value: 'sync', label: 'Synchronous (registered)' }, { value: 'async', label: 'Asynchronous (combinational)' }] },
+    { key: 'port2', label: 'Second read port', kind: 'bool', default: false },
+    { key: 'contents', label: 'Initial contents, space-separated (blank = zero)', kind: 'list', default: '', widthOf: 'width', help: 'A list of values (e.g. "0 1 2 3" or "8\'hA5 8\'h00"), or use "Load .mem file…" below.' },
+  ],
+  ports: p => {
+    const w = ioWidth(p), depth = memDepth(p), aw = memAddrWidth(depth), p2 = bool(p, 'port2');
+    const ps: PortDef[] = [
+      { name: 'd', dir: 'in', width: w, side: 'l', at: 0.15, label: 'D' },
+      { name: 'waddr', dir: 'in', width: aw, side: 'l', at: 0.35, label: 'WA' },
+      { name: 'we', dir: 'in', width: 1, side: 'l', at: 0.55, label: 'WE' },
+      { name: 'raddr', dir: 'in', width: aw, side: 'l', at: p2 ? 0.72 : 0.8, label: 'RA' },
+    ];
+    if (p2) ps.push({ name: 'raddr2', dir: 'in', width: aw, side: 'l', at: 0.92, label: 'RA2' });
+    ps.push({ name: 'q', dir: 'out', width: w, side: 'r', at: p2 ? 0.35 : 0.5, label: 'Q' });
+    if (p2) ps.push({ name: 'q2', dir: 'out', width: w, side: 'r', at: 0.7, label: 'Q2' });
+    return ps;
+  },
+  size: () => ({ w: 90, h: 110 }),
+  body: (_p, s) => rect(s) + clkMark(s),
+  depPorts: p => bool(p, 'port2') ? ['raddr', 'raddr2'] : ['raddr'],
+  inner: (p, s) => memSym('RAM', p, s, memDepth(p)),
+  init: p => { const w = ioWidth(p), depth = memDepth(p); return { mem: memContents(p, w, depth), rq: 0n, rq2: bool(p, 'port2') ? 0n : undefined }; },
+  eval: (ins, p, st) => {
+    const w = ioWidth(p), depth = memDepth(p), aw = memAddrWidth(depth);
+    const s = (st as MemState) ?? { mem: memContents(p, w, depth) };
+    const sync = str(p, 'readStyle', 'sync') === 'sync';
+    const raddr = Number(ins[3] & mask(aw));
+    const q = sync ? (s.rq ?? 0n) : (raddr < depth ? (s.mem[raddr] ?? 0n) : 0n);
+    const outs = [trunc(q, w)];
+    if (bool(p, 'port2')) { const raddr2 = Number(ins[4] & mask(aw)); const q2 = sync ? (s.rq2 ?? 0n) : (raddr2 < depth ? (s.mem[raddr2] ?? 0n) : 0n); outs.push(trunc(q2, w)); }
+    return outs;
+  },
+  next: (ins, p, st, rst) => {
+    const w = ioWidth(p), depth = memDepth(p), aw = memAddrWidth(depth);
+    const s = (st as MemState) ?? { mem: memContents(p, w, depth) };
+    let mem = s.mem;
+    const d = ins[0], waddr = Number(ins[1] & mask(aw)), we = (ins[2] & 1n) === 1n;
+    const raddr = Number(ins[3] & mask(aw));
+    const sync = str(p, 'readStyle', 'sync') === 'sync';
+    const rq = sync ? (rst ? 0n : (raddr < depth ? (mem[raddr] ?? 0n) : 0n)) : undefined;
+    let rq2: bigint | undefined;
+    if (bool(p, 'port2')) { const raddr2 = Number(ins[4] & mask(aw)); rq2 = sync ? (rst ? 0n : (raddr2 < depth ? (mem[raddr2] ?? 0n) : 0n)) : undefined; }
+    if (we && waddr < depth) { const nm = mem.slice(); nm[waddr] = trunc(d, w); mem = nm; }
+    return { mem, rq, rq2 };
+  },
+  help: 'Synchronous write, gated by WE. Read is combinational (async) or registered one cycle (sync); either way, writing and reading the same address in the same cycle reads the OLD value. Reset does not clear memory contents, like a real SRAM. Depth up to 4096, width up to 64.',
+});
+def({
+  type: 'rom', name: 'ROM', group: 'Memory', short: 'rom', kind: 'mixed', trace: true, traceKey: 'q',
+  params: [
+    P.width(8),
+    { key: 'depth', label: 'Depth (words)', kind: 'int', default: 256, min: 1, max: 4096 },
+    { key: 'readStyle', label: 'Read', kind: 'enum', default: 'async', options: [{ value: 'async', label: 'Asynchronous (combinational)' }, { value: 'sync', label: 'Synchronous (registered)' }] },
+    { key: 'contents', label: 'Contents, space-separated (blank = zero)', kind: 'list', default: '', widthOf: 'width', help: 'A list of values, or use "Load .mem file…" below.' },
+  ],
+  ports: p => { const w = ioWidth(p), depth = memDepth(p), aw = memAddrWidth(depth); return [{ name: 'raddr', dir: 'in', width: aw, side: 'l', at: 0.5, label: 'A' }, { name: 'q', dir: 'out', width: w, side: 'r', at: 0.5, label: 'Q' }]; },
+  size: () => ({ w: 74, h: 60 }),
+  body: (_p, s) => rect(s) + clkMark(s),
+  depPorts: () => ['raddr'],
+  inner: (p, s) => memSym('ROM', p, s, memDepth(p)),
+  init: p => { const w = ioWidth(p), depth = memDepth(p); return { mem: memContents(p, w, depth), rq: 0n }; },
+  eval: (ins, p, st) => {
+    const w = ioWidth(p), depth = memDepth(p), aw = memAddrWidth(depth);
+    const s = (st as MemState) ?? { mem: memContents(p, w, depth) };
+    const sync = str(p, 'readStyle', 'async') === 'sync';
+    const raddr = Number(ins[0] & mask(aw));
+    const q = sync ? (s.rq ?? 0n) : (raddr < depth ? (s.mem[raddr] ?? 0n) : 0n);
+    return [trunc(q, w)];
+  },
+  next: (ins, p, st, rst) => {
+    const w = ioWidth(p), depth = memDepth(p), aw = memAddrWidth(depth);
+    const s = (st as MemState) ?? { mem: memContents(p, w, depth) };
+    const sync = str(p, 'readStyle', 'async') === 'sync';
+    const raddr = Number(ins[0] & mask(aw));
+    const rq = sync ? (rst ? 0n : (raddr < depth ? (s.mem[raddr] ?? 0n) : 0n)) : s.rq;
+    return { mem: s.mem, rq };
+  },
+  help: 'Read-only; contents come only from the "Contents" parameter (or a loaded .mem file) and never change during simulation, including on reset. Registered (sync) read adds one cycle of latency; combinational (async) read is immediate.',
+});
+def({
+  type: 'regfile', name: 'Register file', group: 'Memory', short: 'rf', kind: 'mixed', trace: true, traceKey: 'q1',
+  params: [
+    P.width(32),
+    { key: 'depth', label: 'Registers', kind: 'int', default: 32, min: 2, max: 128 },
+    { key: 'zeroReg', label: 'Register 0 hard-wired to zero', kind: 'bool', default: false },
+    { key: 'contents', label: 'Initial contents, space-separated (blank = zero)', kind: 'list', default: '', widthOf: 'width' },
+  ],
+  ports: p => {
+    const w = ioWidth(p), depth = memDepth(p, 128), aw = memAddrWidth(depth);
+    return [
+      { name: 'd', dir: 'in', width: w, side: 'l', at: 0.18, label: 'D' },
+      { name: 'waddr', dir: 'in', width: aw, side: 'l', at: 0.38, label: 'WA' },
+      { name: 'we', dir: 'in', width: 1, side: 'l', at: 0.58, label: 'WE' },
+      { name: 'raddr1', dir: 'in', width: aw, side: 'l', at: 0.76, label: 'RA1' },
+      { name: 'raddr2', dir: 'in', width: aw, side: 'l', at: 0.92, label: 'RA2' },
+      { name: 'q1', dir: 'out', width: w, side: 'r', at: 0.35, label: 'Q1' },
+      { name: 'q2', dir: 'out', width: w, side: 'r', at: 0.7, label: 'Q2' },
+    ];
+  },
+  size: () => ({ w: 90, h: 110 }),
+  body: (_p, s) => rect(s) + clkMark(s),
+  depPorts: () => ['raddr1', 'raddr2'],
+  inner: (p, s) => memSym('RF', p, s, memDepth(p, 128)),
+  init: p => { const w = ioWidth(p), depth = memDepth(p, 128); const mem = memContents(p, w, depth); if (bool(p, 'zeroReg')) mem[0] = 0n; return { mem } as MemState; },
+  eval: (ins, p, st) => {
+    const w = ioWidth(p), depth = memDepth(p, 128), aw = memAddrWidth(depth);
+    const s = (st as MemState) ?? { mem: memContents(p, w, depth) };
+    const zero = bool(p, 'zeroReg');
+    const rd = (a: number) => (zero && a === 0) ? 0n : (a < depth ? (s.mem[a] ?? 0n) : 0n);
+    const r1 = Number(ins[3] & mask(aw)), r2 = Number(ins[4] & mask(aw));
+    return [trunc(rd(r1), w), trunc(rd(r2), w)];
+  },
+  next: (ins, p, st) => {
+    const w = ioWidth(p), depth = memDepth(p, 128), aw = memAddrWidth(depth);
+    const s = (st as MemState) ?? { mem: memContents(p, w, depth) };
+    const zero = bool(p, 'zeroReg');
+    let mem = s.mem;
+    const d = ins[0], waddr = Number(ins[1] & mask(aw)), we = (ins[2] & 1n) === 1n;
+    if (we && waddr < depth && !(zero && waddr === 0)) { const nm = mem.slice(); nm[waddr] = trunc(d, w); mem = nm; }
+    return { mem } as MemState;
+  },
+  help: 'Two asynchronous read ports, one synchronous write port (gated by WE). Writing and reading the same address in the same cycle reads the OLD value (read-before-write), like a real register file. If "register 0 hard-wired to zero" is on, writes to address 0 are dropped and it always reads 0.',
+});
+
 function fmtShort(v: bigint, w: number): string { return w <= 10 ? v.toString() : (w <= 32 ? v.toString() : '0x' + v.toString(16)); }
 
-export const GROUPS = ['Signals', 'Gates', 'Wiring', 'Arithmetic', 'Sequential'];
+export const GROUPS = ['Signals', 'Gates', 'Wiring', 'Arithmetic', 'Sequential', 'Memory'];
 export const defOf = (type: string): BlockDef => { const d = LIB[type]; if (!d) throw new Error(`Unknown block type ${type}`); return d; };
 export function defaultParams(type: string): Params { const p: Params = {}; for (const d of defOf(type).params) p[d.key] = d.default; return p; }
 export function normalizeParams(type: string, p: Params): Params { const out = defaultParams(type); for (const d of defOf(type).params) if (p[d.key] !== undefined) out[d.key] = p[d.key]; return out; }

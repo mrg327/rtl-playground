@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { LIB, defaultParams, defOf } from '../src/model/library';
 const ev = (type: string, ins: (bigint | number)[], params: Record<string, unknown> = {}, state?: unknown) => defOf(type).eval(ins.map(BigInt), { ...defaultParams(type), ...params }, state);
 describe('library', () => {
-  it('every block has consistent defaults', () => { for (const [t, d] of Object.entries(LIB)) { const p = defaultParams(t); expect(d.ports(p).length).toBeGreaterThan(0); expect(d.size(p).w).toBeGreaterThan(0); expect(() => d.body(p, d.size(p))).not.toThrow(); const ins = d.ports(p).filter(x => x.dir === 'in').map(() => 0n); expect(() => d.eval(ins, p, d.init?.(p))).not.toThrow(); } });
+  it('every block has consistent defaults', () => { for (const [t, d] of Object.entries(LIB)) { const p = defaultParams(t); if (t !== 'instance') expect(d.ports(p).length).toBeGreaterThan(0); expect(d.size(p).w).toBeGreaterThan(0); expect(() => d.body(p, d.size(p))).not.toThrow(); const ins = d.ports(p).filter(x => x.dir === 'in').map(() => 0n); expect(() => d.eval(ins, p, d.init?.(p))).not.toThrow(); } });
   it('gates', () => {
     expect(ev('and', [1, 1])).toEqual([1n]); expect(ev('and', [1, 0])).toEqual([0n]); expect(ev('and', [1, 1, 0], { n: 3 })).toEqual([0n]);
     expect(ev('or', [0, 0])).toEqual([0n]); expect(ev('or', [0, 1])).toEqual([1n]); expect(ev('xor', [1, 1])).toEqual([0n]); expect(ev('xor', [1, 0])).toEqual([1n]);

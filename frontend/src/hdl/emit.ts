@@ -5,9 +5,10 @@
 // block's own `ports()` function rather than re-derived from params, so this file cannot silently drift from
 // the simulator: if library.ts changes a port name or width, the emitter follows automatically.
 import type { Design, Module, Block, Dir, PinRef } from '../model/types';
-import { defOf, num, bool, str, type PortDef } from '../model/library';
+import { defOf, num, bool, str, setActiveDesign, type PortDef } from '../model/library';
 import { buildNetlist, pinKey, sanitize, type Netlist, type Net } from '../model/netlist';
 import { toBig, parseList, mask } from '../model/values';
+import { findRecursiveModules } from '../model/hierarchy';
 
 // Kept in step with pyproject.toml by hand; only used in the emitted header comment.
 export const TOOL_VERSION = '0.1.0a2';
@@ -92,6 +93,7 @@ interface Ctx {
   read: (port: string) => string; // resolves an input pin to an expression (a literal 0 if unconnected)
   out: (port: string) => string; // this block's own declared net name for an output pin
   alloc: NameAllocator; // for extra internal state (e.g. the Sequence block's ROM index)
+  design: Design; // only used by the `instance` generator, to name and check the target module
 }
 type Gen = (c: Ctx) => string[];
 
@@ -107,9 +109,15 @@ function initValueOf(b: Block, port: string): bigint | null {
 }
 
 export function planModule(design: Design, key: string): ModulePlan {
+  // The `instance` block's own ports() reads this (see model/library.ts): set before building the netlist,
+  // since an instance's connectivity (dangling-pin checks included) depends on the target module's current
+  // in/out blocks, not just this block's own params.
+  setActiveDesign(design);
   const m = design.modules[key];
   if (!m) throw new Error(`Module "${key}" not found.`);
   if (m.source === 'hdl') throw new Error(`Module "${key}" is HDL-source; use its own text instead of the block emitter.`);
+  const recursive = findRecursiveModules(design);
+  if (recursive.has(key)) throw new Error(recursive.get(key)!);
   const netlist = buildNetlist(m);
   const errors = netlist.problems.filter(p => p.level === 'error');
   if (errors.length) throw new Error(`Cannot emit SystemVerilog for module "${key}": ${errors.map(e => e.message).join('; ')}`);
@@ -152,7 +160,7 @@ export function planModule(design: Design, key: string): ModulePlan {
       b, clk, rst,
       read: port => { const w = portWidthOf(b, port); const net = netFor({ b: b.id, p: port }); const info = net && nets.get(net.id); return info ? info.svName : lit(0n, w); },
       out: port => { const net = netFor({ b: b.id, p: port }); if (!net) throw new Error(`Block "${b.id}" has no net for output "${port}".`); return nets.get(net.id)!.svName; },
-      alloc,
+      alloc, design,
     };
     const lines = gen(ctx);
     if (!lines.length) continue;
@@ -387,6 +395,19 @@ GENERATORS.seq = ({ b, out, clk, rst, alloc }) => {
   ];
 };
 
+// A module instance (DESIGN.md task 1/4): a named instantiation of another design module, with `clk`/`rst`
+// wired through like every generated module's own ports and every other pin connected by name. The port list
+// comes from `read`/`out`, which resolve through the block's own `ports()` (design/library.ts's `instance`
+// definition), so it is always exactly the ports the target module currently has — a stale connection to a
+// renamed/removed port would already have been rejected as a "dangling" netlist error before emission runs.
+GENERATORS.instance = ({ b, read, out, clk, rst, design }) => {
+  const childKey = str(b.params, 'module', '');
+  if (!childKey || !design.modules[childKey]) throw new Error(`Instance "${b.id}" refers to a module that does not exist.`);
+  const ports = portsOfBlock(b);
+  const conn = [`.${clk}(${clk})`, `.${rst}(${rst})`, ...ports.map(p => `.${p.name}(${p.dir === 'in' ? read(p.name) : out(p.name)})`)];
+  return [`${sanitize(childKey)} ${b.id} (${conn.join(', ')});`];
+};
+
 // ---------- module/design text ----------
 export interface EmitOptions { sourceFile?: string }
 
@@ -408,9 +429,12 @@ function moduleText(plan: ModulePlan): string {
   // so a testbench sees the exact power-on state without a reset pulse — which Verilator's PROCASSINIT flags by
   // default; suppressed for the rest of the file rather than disabling the initial value. A block whose output
   // the schematic never wires anywhere (e.g. an unused counter wrap flag), or a purely combinational module's
-  // unused clk/rst ports, are legitimate designs, not bugs, so UNUSEDSIGNAL is suppressed too. Both must come
-  // before the port list itself to cover it, so they sit above `module`, not inside its body.
-  const pragmas = ['/* verilator lint_off PROCASSINIT */', '/* verilator lint_off UNUSEDSIGNAL */'];
+  // unused clk/rst ports, are legitimate designs, not bugs, so UNUSEDSIGNAL is suppressed too. A hierarchical
+  // design (DESIGN.md task 4) emits every module into one file named after `design.top`, so any other module
+  // in it (an instantiated child) legitimately doesn't match the filename — DECLFILENAME is suppressed for the
+  // same "not a bug" reason. All three must come before the port list itself to cover it, so they sit above
+  // `module`, not inside its body.
+  const pragmas = ['/* verilator lint_off PROCASSINIT */', '/* verilator lint_off UNUSEDSIGNAL */', '/* verilator lint_off DECLFILENAME */'];
   return [...pragmas, `module ${plan.svName} (`, ports, `);`, '', plan.body, `endmodule`, ''].join('\n');
 }
 

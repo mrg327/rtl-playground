@@ -1,6 +1,18 @@
 // Parametric block library. Each definition declares its parameters, ports, symbol and semantics.
-import type { Dir, Side } from './types';
+import type { Design, Dir, Side } from './types';
 import { mask, trunc, bit, signed, toBig, parseList } from './values';
+
+// The `instance` block below is the one block whose ports depend on another module, not just its own
+// params (DESIGN.md section 1: "a module is a sheet, a module instance is a block"). `BlockDef.ports()` only
+// ever receives the block's own `params`, and threading a `Design` through geometry.ts/netlist.ts's whole
+// call surface (used for every block on a sheet, not just instances) would be a much bigger change than this
+// task's scope allows, so the app (ui/store.ts) and any script that builds a `Design` directly (gen-examples,
+// hdl/emit.ts's `planModule`, sim/tests.ts) point this at the design currently being worked on before touching
+// netlist/geometry for a module that might contain an `instance` block. Unset (or a missing target module)
+// degrades gracefully to zero ports, never a crash.
+let ACTIVE_DESIGN: Design | null = null;
+export const setActiveDesign = (d: Design | null): void => { ACTIVE_DESIGN = d; };
+export const getActiveDesign = (): Design | null => ACTIVE_DESIGN;
 
 export interface ParamDef {
   key: string;
@@ -372,9 +384,44 @@ def({
   help: 'Shifts in one bit per clock; bit 0 is the newest. out is the oldest bit.',
 });
 
+// ---------- Control ----------
+// The target module's ports, derived from its `in`/`out` blocks (name from label or id, width from that
+// block's own port). Kept in step with `src/model/hierarchy.ts`'s `moduleExternalPorts` (same rule, same
+// order) without importing it: that module imports `defOf`/`normalizeParams` from this one, so importing it
+// back here would be circular.
+function instanceTargetPorts(p: Params): { name: string; dir: Dir; width: number }[] {
+  const key = str(p, 'module', '');
+  const target = key ? ACTIVE_DESIGN?.modules[key] : undefined;
+  if (!target) return [];
+  const out: { name: string; dir: Dir; width: number }[] = [];
+  for (const b of target.blocks) {
+    if (b.type === 'in') out.push({ name: b.label?.trim() || b.id, dir: 'in', width: defOf('in').ports(b.params).find(x => x.name === 'y')?.width ?? 1 });
+    else if (b.type === 'out') out.push({ name: b.label?.trim() || b.id, dir: 'out', width: defOf('out').ports(b.params).find(x => x.name === 'a')?.width ?? 1 });
+  }
+  return out;
+}
+def({
+  type: 'instance', name: 'Module instance', group: 'Control', short: 'u', kind: 'mixed',
+  params: [{ key: 'module', label: 'Module', kind: 'enum', default: '', options: [] }],
+  ports: p => {
+    const ports = instanceTargetPorts(p); const ins = ports.filter(x => x.dir === 'in'), outs = ports.filter(x => x.dir === 'out');
+    return [
+      ...ins.map((x, i): PortDef => ({ name: x.name, dir: x.dir, width: x.width, side: 'l', at: (i + 1) / (ins.length + 1), label: x.name })),
+      ...outs.map((x, i): PortDef => ({ name: x.name, dir: x.dir, width: x.width, side: 'r', at: (i + 1) / (outs.length + 1), label: x.name })),
+    ];
+  },
+  size: p => { const ports = instanceTargetPorts(p); const n = Math.max(ports.filter(x => x.dir === 'in').length, ports.filter(x => x.dir === 'out').length, 1); return { w: 110, h: Math.max(50, 20 * n + 20) }; },
+  body: (_p, s) => rect(s, 3) + `<rect class="inst-frame" x="4" y="4" width="${s.w - 8}" height="${s.h - 8}" rx="2" fill="none"/>`,
+  inner: (p, s) => sym(str(p, 'module', '') || '?', s, 13),
+  // Never actually called: sim/hierarchy.ts's flattenModule expands every instance into its target module's
+  // own blocks before the design reaches the levelized simulator, so this block type is never evaluated.
+  eval: () => [],
+  help: "An instance of another module in this design (DESIGN.md section 1: a module is a sheet, a module instance is a block). Its pins mirror the target module's Input/Output blocks. Double-click to open the instantiated module.",
+});
+
 function fmtShort(v: bigint, w: number): string { return w <= 10 ? v.toString() : (w <= 32 ? v.toString() : '0x' + v.toString(16)); }
 
-export const GROUPS = ['Signals', 'Gates', 'Wiring', 'Arithmetic', 'Sequential'];
+export const GROUPS = ['Signals', 'Gates', 'Wiring', 'Arithmetic', 'Sequential', 'Control'];
 export const defOf = (type: string): BlockDef => { const d = LIB[type]; if (!d) throw new Error(`Unknown block type ${type}`); return d; };
 export function defaultParams(type: string): Params { const p: Params = {}; for (const d of defOf(type).params) p[d.key] = d.default; return p; }
 export function normalizeParams(type: string, p: Params): Params { const out = defaultParams(type); for (const d of defOf(type).params) if (p[d.key] !== undefined) out[d.key] = p[d.key]; return out; }

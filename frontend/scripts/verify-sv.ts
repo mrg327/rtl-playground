@@ -3,6 +3,12 @@
 // testbench binaries, and check that every test the in-browser simulator passes also passes under Verilator.
 // Also runs the design through Yosys to confirm it is synthesizable.
 //
+// Hierarchical examples (DESIGN.md task 4, e.g. 11-sad-hierarchy.rtlp) need no special-casing here:
+// `emitDesign` writes every module of the design into the one file below, so Verilator lints/builds the whole
+// hierarchy in one pass and Yosys's `hierarchy -check` walks the same module instantiation tree the schematic
+// does, which is exactly the check that would catch a dangling or missing instance reference before a student
+// hits it in Vivado/Quartus.
+//
 // Run with: npx vite-node scripts/verify-sv.ts [example.rtlp ...]   (default: every examples/*.rtlp)
 //
 // Needs Verilator 5 and Yosys on PATH, or under ~/eda/env/bin (this machine's install). If a compiler isn't
@@ -40,7 +46,9 @@ let anyFail = false;
 function verifyExample(file: string, dir: string): void {
   const design: Design = deserialize(readFileSync(file, 'utf8'));
   const name = file.replace(/^.*\//, '').replace(/\.rtlp$/, '');
-  // Named after the SV module itself (not the example file) so Verilator's DECLFILENAME check has nothing to say.
+  // Named after the top module (not the example file), matching the emitter's own DECLFILENAME suppression:
+  // a single-module design's one module then matches the filename with nothing to suppress; a hierarchical
+  // one's other modules don't, which `hdl/emit.ts`'s `moduleText()` already accounts for.
   const svPath = join(dir, `${sanitize(design.top)}.sv`);
   let svText: string;
   try { svText = emitDesign(design, { sourceFile: `${name}.rtlp` }); }

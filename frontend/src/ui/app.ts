@@ -10,6 +10,9 @@ import { WaveformView, toVCD, toWaveJSON, type WaveData, type WaveSignal } from 
 import { runAll, type TestResult } from '../sim/tests';
 import { Host, download, upload, openFromHash } from '../host/api';
 import { pinKey } from '../model/netlist';
+import { compile } from '../sim/engine';
+import { findRecursiveModules } from '../model/hierarchy';
+import type { Problem } from '../model/netlist';
 import type { ProjectView } from '../project/view';
 import type { CodeEditor } from '../project/editor';
 import { emitDesign } from '../hdl/emit';
@@ -55,8 +58,9 @@ export class App {
         <button id="present" title="Presentation mode (F11)">Present</button>
         <button id="cmd" title="Command palette (Ctrl+K)">⌘K</button><button id="help" title="Keyboard shortcuts (?)">?</button>
       </header>
-      <aside class="left"><h2>Blocks</h2><div class="pal" id="pal"></div></aside>
+      <aside class="left"><h2>Modules</h2><div class="modtree" id="modtree"></div><h2>Blocks</h2><div class="pal" id="pal"></div></aside>
       <main>
+        <div class="breadcrumb" id="breadcrumb"></div>
         <div class="canvas" id="canvas"></div>
       </main>
       <aside class="right"><h2>Selected</h2><div class="insp" id="insp"></div><h2>Problems</h2><div class="problems" id="problems"></div></aside>
@@ -70,14 +74,14 @@ export class App {
         <div class="panel sv" id="sv"></div>
       </section>
       <div class="project" id="project"></div>`;
-    for (const id of ['file', 'new', 'open', 'save', 'examples', 'undo', 'redo', 'back', 'step', 'run', 'speed', 'rst', 'poweron', 'cycle', 'vmode', 'dim', 'fit', 'present', 'cmd', 'help', 'pal', 'canvas', 'insp', 'problems', 'bottom', 'wave', 'tests', 'sv', 'wzoomout', 'wzoomin', 'wfit', 'wvcd', 'wjson', 'wclear', 'wtog', 'svdownload', 'svtb', 'svsend']) this.el[id] = root.querySelector('#' + id)!;
+    for (const id of ['file', 'new', 'open', 'save', 'examples', 'undo', 'redo', 'back', 'step', 'run', 'speed', 'rst', 'poweron', 'cycle', 'vmode', 'dim', 'fit', 'present', 'cmd', 'help', 'pal', 'modtree', 'breadcrumb', 'canvas', 'insp', 'problems', 'bottom', 'wave', 'tests', 'sv', 'wzoomout', 'wzoomin', 'wfit', 'wvcd', 'wjson', 'wclear', 'wtog', 'svdownload', 'svtb', 'svsend']) this.el[id] = root.querySelector('#' + id)!;
     const cv = this.el.canvas;
-    this.canvas = new Canvas(cv, this.store, { onEditBlock: id => this.inlineEdit(id), onEditNote: id => this.editNote(id) });
-    cv.insertAdjacentHTML('beforeend', `<div class="empty-hint">The canvas is empty.<br>Add a block from the list on the left, or open an example.</div><div class="hint">Drag from a pin to wire · click a 1-bit input to toggle · drag empty space to select · right-drag or Space+drag to pan · Ctrl+wheel to zoom · <kbd>Space</kbd> clocks</div>`);
+    this.canvas = new Canvas(cv, this.store, { onEditBlock: id => this.inlineEdit(id), onEditNote: id => this.editNote(id), onEnterInstance: id => this.store.enterInstance(id) });
+    cv.insertAdjacentHTML('beforeend', `<div class="empty-hint">The canvas is empty.<br>Add a block from the list on the left, or open an example.</div><div class="hint">Drag from a pin to wire · click a 1-bit input to toggle · drag empty space to select · right-drag or Space+drag to pan · Ctrl+wheel to zoom · <kbd>Space</kbd> clocks · double-click an instance to open it</div>`);
     renderPalette(this.el.pal, t => this.addBlock(t));
     this.wave = new WaveformView(this.el.wave, {
       onCursor: i => { this.store.sim.cur = i; this.store.emit('sim'); },
-      onRemove: key => { if (key === 'clk') return; const b = this.store.module.blocks.find(x => key.startsWith(x.id + '.')); if (b) this.store.mutate('Untrace', () => { b.trace = false; }); },
+      onRemove: key => { if (key === 'clk') return; this.store.untraceHierKey(key); },
       onRadix: (key, r) => { this.store.design.views.wave.radix[key] = r; this.store.dirty = true; this.refresh('sim'); },
       onReorder: keys => { this.store.design.views.wave.signals = keys; this.refresh('sim'); },
     });
@@ -119,8 +123,10 @@ export class App {
   refresh(what: string): void {
     const s = this.store, sim = s.sim;
     if (what === 'load') { this.canvas.zoomFit(); this.testResults = null; }
+    else if (what === 'view') this.canvas.zoomFit();
     this.canvas.render();
     if (what !== 'sim') renderInspector(this.el.insp, s, { del: () => this.deleteSelection(), rotate: () => this.rotate(), flip: () => this.flip() });
+    if (what !== 'sim') { this.renderModuleTree(); this.renderBreadcrumb(); }
     this.renderProblems();
     this.el.cycle.textContent = `cycle ${sim.cycle}${sim.live ? '' : ` / ${sim.lastCycle}`}`; this.el.cycle.classList.toggle('past', !sim.live);
     this.el.file.textContent = s.file ?? s.design.name; this.el.file.classList.toggle('dirty', s.dirty);
@@ -133,31 +139,73 @@ export class App {
     document.title = `${s.dirty ? '• ' : ''}${s.file ?? s.design.name} – RTL Playground`;
   }
 
-  traceKeyOf(b: Block): string | null { const d = defOf(b.type); const ports = d.ports(b.params); const p = d.traceKey ? ports.find(x => x.name === d.traceKey) : ports.find(x => x.dir === 'out'); return p ? `${b.id}.${p.name}` : null; }
-
+  /** Signals traced anywhere in the flattened design (DESIGN.md task 2: hierarchical names in the waveform),
+   * always shown regardless of which sheet is open — the waveform reflects the whole simulated tree. */
   waveData(): WaveData {
     const s = this.store, sim = s.sim, c = sim.compiled;
-    const traced = s.module.blocks.filter(b => b.trace).map(b => ({ b, key: this.traceKeyOf(b) })).filter(x => x.key) as { b: Block; key: string }[];
+    const traced = [...s.tracedSignals];
     const order = s.design.views.wave.signals; traced.sort((a, b) => { const ia = order.indexOf(a.key), ib = order.indexOf(b.key); return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib); });
     const n = sim.frames.length; const cycles = sim.frames.map(f => f.cycle); const rst = sim.frames.map(f => f.rst);
     const frameVals: bigint[][] = []; for (let i = 0; i < n; i++) frameVals.push(sim.values(i));
-    const signals: WaveSignal[] = traced.map(({ b, key }) => {
-      const port = c.netlist.ports.get(b.id)!.find(p => `${b.id}.${p.name}` === key)!;
-      let src = key; if (port.dir === 'in') { const drv = c.netlist.byPin.get(key)?.drivers[0]; src = drv ? pinKey(drv) : ''; }
-      const idx = src ? c.pinIndex.get(src) : undefined; const m = (1n << BigInt(port.width)) - 1n;
-      const values = frameVals.map(v => (idx === undefined ? 0n : v[idx] & m));
-      return { key, name: b.label || b.id, width: port.width, radix: s.design.views.wave.radix[key] ?? (port.width > 16 ? 'hex' : 'dec'), values };
+    const signals: WaveSignal[] = traced.map(({ key, label, width }) => {
+      // A traced pin that is itself an input (e.g. an Output block's `a`) never gets a value written into it
+      // by evaluate() (only real outputs do); resolve through its driver, which is a no-op for an output pin
+      // (its own net's one driver is itself).
+      const net = c.netlist.byPin.get(key); const drv = net?.drivers[0];
+      const idx = c.pinIndex.get(drv ? pinKey(drv) : key);
+      const mask = (1n << BigInt(width)) - 1n;
+      const values = frameVals.map(v => (idx === undefined ? 0n : v[idx] & mask));
+      return { key, name: label, width, radix: s.design.views.wave.radix[key] ?? (width > 16 ? 'hex' : 'dec'), values };
     });
     signals.unshift({ key: 'clk', name: 'clk', width: 1, radix: 'bin', values: cycles.map(() => 0n) });
     return { cycles, signals, cursor: sim.cur, live: n - 1, rst };
   }
   renderWave(): void { if (this.el.bottom.classList.contains('collapsed') || this.tab !== 'wave') return; this.wave.update(this.waveData()); }
 
+  /** The sheet actually open's own structural problems (multi-driver, width, dangling, undriven, loops — all
+   * from the un-flattened module, so ids match what's on screen) plus any module-instantiates-itself problem
+   * anywhere in the design, since recursion is a design-wide error, not tied to whichever sheet is open. */
   renderProblems(): void {
-    const ps = this.store.sim.compiled.problems;
+    const local = compile(this.store.module).problems;
+    const recursion: Problem[] = [...findRecursiveModules(this.store.design).values()].map(message => ({ level: 'error', code: 'recursion', message }));
+    const ps = [...local, ...recursion];
     if (!ps.length) { this.el.problems.innerHTML = `<div class="ok">No problems.</div>`; return; }
     this.el.problems.innerHTML = ps.map((p, i) => `<div class="item ${p.level}" data-i="${i}">${esc(p.message)}</div>`).join('');
     this.el.problems.onclick = e => { const it = (e.target as HTMLElement).closest<HTMLElement>('.item'); if (!it) return; const p = ps[+it.dataset.i!]; const sel = emptySel(); for (const b of p.blocks ?? []) sel.blocks.add(b); for (const w of p.wires ?? []) sel.wires.add(w); this.store.select(sel); };
+  }
+
+  // ---------- module hierarchy (DESIGN.md task 3) ----------
+  renderModuleTree(): void {
+    const s = this.store; const el = this.el.modtree;
+    const keys = Object.keys(s.design.modules);
+    el.innerHTML = keys.map(k => `<div class="item${k === s.viewModule ? ' active' : ''}" data-k="${esc(k)}" title="${k === s.design.top ? 'The top module' : 'Double-click, or use the menu, to rename/delete/set as top'}"><span class="name">${esc(k)}</span>${k === s.design.top ? '<span class="top-badge">top</span>' : ''}<button class="menu" data-menu="${esc(k)}" title="Module actions">⋮</button></div>`).join('')
+      + `<button class="add">+ New module</button>`;
+    el.querySelectorAll<HTMLElement>('.item').forEach(it => { it.onclick = e => { if ((e.target as HTMLElement).closest('.menu')) return; this.store.openModule(it.dataset.k!); }; });
+    el.querySelectorAll<HTMLButtonElement>('button.menu').forEach(b => { b.onclick = e => { e.stopPropagation(); void this.moduleMenu(b.dataset.menu!); }; });
+    el.querySelector<HTMLButtonElement>('.add')!.onclick = () => { const key = this.store.addModule('module'); this.store.openModule(key); };
+  }
+  renderBreadcrumb(): void {
+    const s = this.store; const el = this.el.breadcrumb;
+    el.innerHTML = s.breadcrumb.map((step, i) => `${i > 0 ? '<span class="sep">/</span>' : ''}<button data-i="${i}" class="${i === s.breadcrumb.length - 1 ? 'active' : ''}">${esc(step.module)}</button>`).join('')
+      + (s.simActive ? '' : ' <span style="color:var(--hi);font-size:11px;margin-left:8px">not simulated (not reached from the top module)</span>');
+    el.querySelectorAll<HTMLButtonElement>('button[data-i]').forEach(b => { b.onclick = () => this.store.goToBreadcrumb(+b.dataset.i!); });
+  }
+  async moduleMenu(key: string): Promise<void> {
+    const s = this.store;
+    const pick = await this.pickList(`Module "${key}"`, [
+      { label: 'Open', value: 'open' },
+      { label: key === s.design.top ? 'Top module' : 'Set as top module', value: 'top', hint: key === s.design.top ? 'already top' : '' },
+      { label: 'Rename…', value: 'rename' },
+      { label: 'Delete', value: 'delete' },
+    ]);
+    if (!pick) return;
+    if (pick.value === 'open') s.openModule(key);
+    else if (pick.value === 'top') { if (key !== s.design.top) s.setTop(key); }
+    else if (pick.value === 'rename') { const name = prompt('Rename module to:', key); if (name && name.trim() && name.trim() !== key) { if (s.design.modules[name.trim()]) this.toast(`A module named "${name.trim()}" already exists.`, true); else s.renameModule(key, name.trim()); } }
+    else if (pick.value === 'delete') {
+      if (!confirm(`Delete module "${key}"? Any instance of it elsewhere would then refer to a missing module.`)) return;
+      if (!s.deleteModule(key)) this.toast(`Cannot delete "${key}": it is the top module, the only module, or still instantiated elsewhere.`, true);
+    }
   }
 
   renderTests(): void {

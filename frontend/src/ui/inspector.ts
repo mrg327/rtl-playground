@@ -23,7 +23,14 @@ export function renderInspector(el: HTMLElement, store: Store, actions: { del():
   let h = `<h3>${d.name} <span class="mono" style="color:var(--ink2);font-weight:400">${esc(b.id)}</span></h3>`;
   if (locked) h += `<p>🔒 This block is part of the exercise and cannot be edited.</p>`;
   h += `<label>Label</label><input type="text" data-k="__label" value="${esc(b.label ?? '')}" placeholder="e.g. Start" ${locked ? 'disabled' : ''}>`;
-  for (const p of d.params) h += paramField(p, b, locked);
+  if (b.type === 'instance') {
+    // The available-modules dropdown (DESIGN.md task 3): the block library has no notion of "the current
+    // design", so this one param is rendered here instead of through the generic paramField() below.
+    const keys = Object.keys(store.design.modules);
+    const cur = String(b.params.module ?? '');
+    h += `<label>Module</label><select data-k="module" ${locked ? 'disabled' : ''}><option value="" ${cur ? '' : 'selected'}>(choose a module)</option>${keys.map(k => `<option value="${esc(k)}" ${k === cur ? 'selected' : ''}>${esc(k)}${k === store.viewModule ? ' (this sheet)' : ''}</option>`).join('')}</select>`;
+    for (const p of d.params) if (p.key !== 'module') h += paramField(p, b, locked);
+  } else for (const p of d.params) h += paramField(p, b, locked);
   if (d.help) h += `<p>${esc(d.help)}</p>`;
   const st = store.sim.frame.states.get(b.id) as { q?: bigint } | undefined;
   if (st && typeof st.q === 'bigint') h += `<p class="mono">Q = ${st.q} · ${fmt(st.q, num(b.params, 'width', num(b.params, 'len', 1)), 'hex')}h</p>`;

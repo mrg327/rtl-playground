@@ -2,8 +2,9 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Design, Module, Block, Note, Test } from '../src/model/types';
-import { emptyDesign } from '../src/model/types';
-import { normalizeParams, defOf } from '../src/model/library';
+import { emptyDesign, emptyModule } from '../src/model/types';
+import { normalizeParams, defOf, setActiveDesign } from '../src/model/library';
+import { flattenModule } from '../src/model/hierarchy';
 import { Simulator } from '../src/sim/engine';
 import { runAll } from '../src/sim/tests';
 import { serialize } from '../src/model/serialize';
@@ -21,13 +22,19 @@ function note(m: Module, x: number, y: number, w: number, h: number, text: strin
 function test(d: Design, name: string, columns: string[], rows: string[][]): void { const t: Test = { name, module: 'top', columns, rows }; d.tests.push(t); }
 function emit(file: string, d: Design): void {
   wid = 0;
-  const sim = new Simulator(d.modules.top);
+  setActiveDesign(d);
+  // Flatten before simulating (DESIGN.md section 6), so an example built from module instances is validated
+  // exactly the way the app itself simulates one: through `top`, with every instance expanded.
+  const { module, problems } = flattenModule(d, d.top);
+  const sim = new Simulator(module, problems);
   const errs = sim.compiled.problems.filter(p => p.level === 'error');
   if (errs.length) throw new Error(`${file}: ${errs.map(e => e.message).join('; ')}`);
   const res = runAll(d);
   for (const r of res) if (!r.passed) throw new Error(`${file}: test "${r.name}" failed: ${r.error ?? JSON.stringify(r.rows.filter(x => !x.ok))}`);
+  const top = d.modules[d.top];
+  const nmod = Object.keys(d.modules).length;
+  console.log(`ok  ${file}  (${top.blocks.length} blocks, ${top.wires.length} wires, ${res.length} tests${nmod > 1 ? `, ${nmod} modules` : ''})`);
   writeFileSync(resolve(OUT, file), serialize(d));
-  console.log(`ok  ${file}  (${d.modules.top.blocks.length} blocks, ${d.modules.top.wires.length} wires, ${res.length} tests)`);
 }
 
 // 01 gates
@@ -158,4 +165,43 @@ function emit(file: string, d: Design): void {
   add(m, 'found', 'out', 580, 141, { width: 1 }, { label: 'found' }); wire(m, 'cmp1.y', 'found.a');
   test(d, 'Stream 0101110110', ['found'], [['0'], ['0'], ['0'], ['0'], ['0'], ['1'], ['0'], ['0'], ['0'], ['1'], ['0']]);
   emit('10-pattern-detector.rtlp', d);
+}
+// 11 SAD of 4 pixel pairs, built from absdiff module instances (module hierarchy)
+{
+  const d = design('SAD of 4 pixel pairs (module hierarchy)');
+  // absdiff: |a - b| for two 8-bit pixels, built from a subtractor, a negate-through-a-second-subtractor,
+  // and a mux on the borrow flag — the building block of the sum-of-absolute-differences the course's
+  // block-matching motion estimator project reduces to (DESIGN.md section 13).
+  const ad = emptyModule(); d.modules.absdiff = ad;
+  add(ad, 'a', 'in', 40, 40, { width: 8 }, { label: 'a' }); add(ad, 'b', 'in', 40, 140, { width: 8 }, { label: 'b' });
+  add(ad, 'sub1', 'sub', 220, 60, { width: 8 }); wire(ad, 'a.y', 'sub1.a'); wire(ad, 'b.y', 'sub1.b');
+  add(ad, 'zero', 'const', 220, 220, { width: 8, value: 0 });
+  add(ad, 'sub2', 'sub', 380, 200, { width: 8 }); wire(ad, 'zero.y', 'sub2.a'); wire(ad, 'sub1.d', 'sub2.b');
+  add(ad, 'mux1', 'mux', 540, 100, { n: 2, width: 8 }); wire(ad, 'sub1.d', 'mux1.i0'); wire(ad, 'sub2.d', 'mux1.i1'); wire(ad, 'sub1.bo', 'mux1.s');
+  add(ad, 'd', 'out', 680, 107, { width: 8 }, { label: 'd' }); wire(ad, 'mux1.y', 'd.a');
+  note(ad, 40, 20, 620, 30, 'd = |a - b|: subtract, then negate through a second subtractor and pick the correct one on the borrow flag.');
+
+  const m = d.modules.top;
+  note(m, 40, 20, 640, 50, 'Four absdiff instances compute |a-b| for four pixel pairs; an adder tree with growing width sums them into a 10-bit SAD. This is the reduction step of the course project\'s block-matching motion estimator, at 4-pixel scale.');
+  for (let i = 0; i < 4; i++) {
+    add(m, `a${i}`, 'in', 40, 100 + i * 90, { width: 8, value: 10 + i }, { label: `a${i}` });
+    add(m, `b${i}`, 'in', 40, 140 + i * 90, { width: 8, value: 3 }, { label: `b${i}` });
+    add(m, `u${i}`, 'instance', 220, 100 + i * 90, { module: 'absdiff' }, { label: `absdiff ${i}` });
+    wire(m, `a${i}.y`, `u${i}.a`); wire(m, `b${i}.y`, `u${i}.b`);
+  }
+  for (let i = 0; i < 4; i++) { add(m, `e${i}`, 'ext', 400, 100 + i * 90, { inw: 8, outw: 9 }); wire(m, `u${i}.d`, `e${i}.a`); }
+  add(m, 'add1', 'add', 520, 120, { width: 9, cin: false, cout: false }); wire(m, 'e0.y', 'add1.a'); wire(m, 'e1.y', 'add1.b');
+  add(m, 'add2', 'add', 520, 300, { width: 9, cin: false, cout: false }); wire(m, 'e2.y', 'add2.a'); wire(m, 'e3.y', 'add2.b');
+  add(m, 'ext01', 'ext', 640, 120, { inw: 9, outw: 10 }); wire(m, 'add1.s', 'ext01.a');
+  add(m, 'ext23', 'ext', 640, 300, { inw: 9, outw: 10 }); wire(m, 'add2.s', 'ext23.a');
+  add(m, 'add3', 'add', 760, 200, { width: 10, cin: false, cout: false }); wire(m, 'ext01.y', 'add3.a'); wire(m, 'ext23.y', 'add3.b');
+  add(m, 'sad', 'out', 880, 220, { width: 10 }, { label: 'sad' }); wire(m, 'add3.s', 'sad.a');
+
+  test(d, 'SAD of four pairs', ['a0', 'b0', 'a1', 'b1', 'a2', 'b2', 'a3', 'b3', 'sad'], [
+    ['10', '3', '11', '3', '12', '3', '13', '3', '34'], // |10-3|+|11-3|+|12-3|+|13-3| = 7+8+9+10 = 34
+    ['0', '255', '0', '255', '0', '255', '0', '255', "10'd1020"], // every pair maximally different
+    ['5', '5', '5', '5', '5', '5', '5', '5', '0'], // identical blocks: zero SAD
+    ['200', '50', '10', '10', '0', '255', '3', '3', "10'd405"], // 150 + 0 + 255 + 0
+  ]);
+  emit('11-sad-hierarchy.rtlp', d);
 }

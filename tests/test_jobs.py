@@ -243,10 +243,10 @@ def test_new_project_from_template(api: Client, project_root: Path):
 def test_udocker_wrap_and_setup(tmp_path: Path):
     tc = Toolchain("docker", engine="/x/udocker", engine_kind="udocker", image="ghcr.io/o/rtl-playground-tools:2026.09",
                    flow_home="/OpenROAD-flow-scripts/flow")
-    assert tc.container == "rtlp-rtl-playground-tools-2026.09"
+    assert tc.container == "rtlp-rtl-playground-tools-2026_09"
     argv, _ = tc.wrap(["make", "synth"], root=tmp_path, cwd=tmp_path / "p", env={"A": "1"})
     assert argv == ["/x/udocker", "run", "--nobanner", "-v", f"{tmp_path.resolve()}:/work", "-w", "/work/p",
-                    "-e", "A=1", "rtlp-rtl-playground-tools-2026.09", "make", "synth"]
+                    "-e", "A=1", "rtlp-rtl-playground-tools-2026_09", "make", "synth"]
     assert tc.setup_commands() == [["/x/udocker", "pull", tc.image],
                                    ["/x/udocker", "create", f"--name={tc.container}", tc.image]]
     docker = Toolchain("docker", engine="/usr/bin/docker", engine_kind="docker", image="img:1")

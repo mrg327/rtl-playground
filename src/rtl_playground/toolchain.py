@@ -69,8 +69,9 @@ class Toolchain:
     @property
     def container(self) -> str:
         """udocker runs a created container, not an image; its name is derived from the image tag."""
-        tag = self.image.rsplit("/", 1)[-1].replace(":", "-")
-        return "rtlp-" + "".join(c if c.isalnum() or c in "-_." else "-" for c in tag)
+        tag = self.image.rsplit("/", 1)[-1]
+        # udocker rejects '/', '.', ' ', '[' and ']' in names.
+        return "rtlp-" + "".join(c if c.isalnum() or c in "-_" else "_" if c == "." else "-" for c in tag)
 
     def setup_commands(self) -> list[list[str]]:
         """Commands that download the tool image (and, for udocker, create its container)."""

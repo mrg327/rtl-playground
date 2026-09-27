@@ -152,3 +152,18 @@ describe('instance pins on a sheet read the flattened port buffers', () => {
     expect(val(`${inst.id}.a`)).toBe(10n);
   });
 });
+
+describe('input stimulus after flattening', () => {
+  it('reaches the running simulator without a recompile (examples/06 counter enable)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { Store } = await import('../src/ui/store');
+    const s = new Store(deserialize(readFileSync(new URL('../../examples/06-counter.rtlp', import.meta.url), 'utf8')));
+    const en = s.module.blocks.find(b => b.type === 'in')!;
+    const counter = s.module.blocks.find(b => b.type === 'counter')!;
+    const q = () => (s.sim.frame.states.get(counter.id) as { q: bigint }).q;
+    s.stimulus(() => { en.params.value = 1n; }); s.sim.step(); s.sim.step();
+    const held = q();
+    s.stimulus(() => { en.params.value = 0n; }); s.sim.step(); s.sim.step();
+    expect(q()).toBe(held); // disabled: holds
+  });
+});

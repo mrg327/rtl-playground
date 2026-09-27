@@ -94,6 +94,7 @@ interface Ctx {
   out: (port: string) => string; // this block's own declared net name for an output pin
   alloc: NameAllocator; // for extra internal state (e.g. the Sequence block's ROM index)
   design: Design; // only used by the `instance` generator, to name and check the target module
+  instName: string; // this block's instance name, reserved before nets so no net can take it
 }
 type Gen = (c: Ctx) => string[];
 
@@ -102,9 +103,12 @@ type Gen = (c: Ctx) => string[];
  * a counter's `co` (and any other output) is purely combinational and must not get an initial value of its
  * own, or Verilator's CONTASSINIT rightly complains about a continuously-assigned net with one. */
 function initValueOf(b: Block, port: string): bigint | null {
-  if (port !== 'q') return null;
-  if (b.type === 'reg' || b.type === 'counter') return toBig(b.params.init, portWidthOf(b, 'q'));
-  if (b.type === 'shreg') return 0n;
+  if (port === 'q' && (b.type === 'reg' || b.type === 'counter')) return toBig(b.params.init, portWidthOf(b, 'q'));
+  if (port === 'q' && b.type === 'shreg') return 0n;
+  // A memory's own read output is a real register only in sync (registered) read mode; in async mode it is a
+  // continuously-assigned wire (see GENERATORS.ram/rom below), and giving that an initial value would trip
+  // Verilator's CONTASSINIT the same way a counter's `co` would.
+  if ((port === 'q' || port === 'q2') && (b.type === 'ram' || b.type === 'rom') && str(b.params, 'readStyle', 'sync') === 'sync') return 0n;
   return null;
 }
 
@@ -135,6 +139,11 @@ export function planModule(design: Design, key: string): ModulePlan {
     ports.push({ name, dir: b.type === 'in' ? 'in' : 'out', width: portWidthOf(b, b.type === 'in' ? 'y' : 'a'), blockId: b.id });
   }
 
+  // Instance names share the module's namespace with nets; reserve them first (a net named after its
+  // driving block, e.g. `u0`, would otherwise collide with the instance `u0` and fail to elaborate).
+  const instNames = new Map<string, string>();
+  for (const b of m.blocks) if (b.type === 'instance') instNames.set(b.id, alloc.alloc(b.id));
+
   const nets = new Map<string, NetInfo>();
   for (const net of netlist.nets) {
     const drv = net.drivers[0];
@@ -160,7 +169,7 @@ export function planModule(design: Design, key: string): ModulePlan {
       b, clk, rst,
       read: port => { const w = portWidthOf(b, port); const net = netFor({ b: b.id, p: port }); const info = net && nets.get(net.id); return info ? info.svName : lit(0n, w); },
       out: port => { const net = netFor({ b: b.id, p: port }); if (!net) throw new Error(`Block "${b.id}" has no net for output "${port}".`); return nets.get(net.id)!.svName; },
-      alloc, design,
+      alloc, design, instName: instNames.get(b.id) ?? b.id,
     };
     const lines = gen(ctx);
     if (!lines.length) continue;
@@ -363,6 +372,73 @@ GENERATORS.shreg = ({ b, read, out, clk, rst }) => {
   return lines;
 };
 
+// ---------- Memory (DESIGN.md section 4): the inference-friendly pattern vendor tools map to block RAM ----------
+// `logic [W-1:0] mem [0:D-1]` + `always_ff @(posedge clk) if (we) mem[waddr] <= wdata;` + a registered or
+// combinational read, matching src/model/library.ts's ram/rom/regfile eval()/next() bit for bit: writing and
+// reading the same address in the same cycle reads the OLD value (read-before-write), because the write and
+// any registered read are both driven off the same edge's pre-edge values, exactly as Verilog NBA semantics
+// give for two `always_ff` blocks triggered by the same posedge.
+//
+// Contents are loaded in an `initial` block (a zeroing `for` loop, then the given values), not a `'{..}'`
+// assignment-pattern declaration initializer: Yosys's `read_verilog -sv` (its Verilog-2005-based frontend, even
+// with `-sv`) does not parse that syntax. Depth need not be a power of two, so every index into `mem` is
+// bounds-guarded against `depth` — except when `depth` exactly fills the address width (the common case, e.g.
+// depth 256 with an 8-bit address), where every representable address is already in range and the guard would
+// be dead code; `boundsOf` returns null then, and every call site below drops the guard entirely rather than
+// compare against a literal that can't itself be represented in the address width (2^addrWidth overflows it).
+function memInit(b: Block, w: number, depth: number, mem: string): string[] {
+  const vals = parseList(str(b.params, 'contents', ''), w);
+  const lines = [`initial begin`, `  for (int rtlp_i = 0; rtlp_i < ${depth}; rtlp_i++) ${mem}[rtlp_i] = ${lit(0n, w)};`];
+  vals.slice(0, depth).forEach((v, i) => { if (v !== 0n) lines.push(`  ${mem}[${i}] = ${lit(v, w)};`); });
+  lines.push(`end`);
+  return lines;
+}
+/** Null when `depth` exactly fills `addrWidth` (every representable address is in range; no guard needed),
+ * else a same-width literal so the comparison never triggers Verilator WIDTHEXPAND against an addr operand
+ * narrower than a default (32-bit) unsized literal. */
+function boundsOf(depth: number, addrWidth: number): string | null { return depth >= (1 << addrWidth) ? null : lit(BigInt(depth), addrWidth); }
+function memRead(mem: string, addr: string, bound: string | null, w: number): string { return bound ? `(${addr} < ${bound}) ? ${mem}[${addr}] : ${lit(0n, w)}` : `${mem}[${addr}]`; }
+GENERATORS.ram = ({ b, read, out, clk, rst, alloc }) => {
+  const w = portWidthOf(b, 'q'); const depth = num(b.params, 'depth', 256); const aw = portWidthOf(b, 'waddr'); const bound = boundsOf(depth, aw);
+  const sync = str(b.params, 'readStyle', 'sync') === 'sync'; const port2 = hasPort(b, 'raddr2');
+  const mem = alloc.alloc(`${b.id}_mem`);
+  const d = read('d'), waddr = read('waddr'), we = read('we'), raddr = read('raddr'), q = out('q');
+  const writeGuard = bound ? `${we} && (${waddr} < ${bound})` : we;
+  const lines = [`${declType(w)} ${mem} [0:${depth - 1}];`, ...memInit(b, w, depth, mem), '', `always_ff @(posedge ${clk}) if (${writeGuard}) ${mem}[${waddr}] <= ${d};`, ''];
+  const readGen = (addr: string, qq: string): void => {
+    if (sync) lines.push(`always_ff @(posedge ${clk}) begin`, `  if (${rst}) ${qq} <= ${lit(0n, w)};`, `  else ${qq} <= ${memRead(mem, addr, bound, w)};`, `end`, '');
+    else lines.push(`assign ${qq} = ${memRead(mem, addr, bound, w)};`, '');
+  };
+  readGen(raddr, q);
+  if (port2) readGen(read('raddr2'), out('q2'));
+  if (lines[lines.length - 1] === '') lines.pop();
+  return lines;
+};
+GENERATORS.rom = ({ b, read, out, clk, rst, alloc }) => {
+  const w = portWidthOf(b, 'q'); const depth = num(b.params, 'depth', 256); const aw = portWidthOf(b, 'raddr'); const bound = boundsOf(depth, aw);
+  const sync = str(b.params, 'readStyle', 'async') === 'sync';
+  const mem = alloc.alloc(`${b.id}_mem`);
+  const raddr = read('raddr'), q = out('q');
+  const lines = [`${declType(w)} ${mem} [0:${depth - 1}];`, ...memInit(b, w, depth, mem), ''];
+  if (sync) lines.push(`always_ff @(posedge ${clk}) begin`, `  if (${rst}) ${q} <= ${lit(0n, w)};`, `  else ${q} <= ${memRead(mem, raddr, bound, w)};`, `end`);
+  else lines.push(`assign ${q} = ${memRead(mem, raddr, bound, w)};`);
+  return lines;
+};
+GENERATORS.regfile = ({ b, read, out, clk, alloc }) => {
+  const w = portWidthOf(b, 'q1'); const depth = num(b.params, 'depth', 32); const aw = portWidthOf(b, 'waddr'); const bound = boundsOf(depth, aw);
+  const zero = bool(b.params, 'zeroReg');
+  const mem = alloc.alloc(`${b.id}_mem`);
+  const d = read('d'), waddr = read('waddr'), we = read('we');
+  const writeGuard = [we, bound ? `(${waddr} < ${bound})` : null, zero ? `(${waddr} != ${lit(0n, aw)})` : null].filter((x): x is string => !!x).join(' && ');
+  const readExpr = (addr: string): string => zero ? `(${addr} == ${lit(0n, aw)}) ? ${lit(0n, w)} : (${memRead(mem, addr, bound, w)})` : memRead(mem, addr, bound, w);
+  return [
+    `${declType(w)} ${mem} [0:${depth - 1}];`, ...memInit(b, w, depth, mem), '',
+    `always_ff @(posedge ${clk}) if (${writeGuard}) ${mem}[${waddr}] <= ${d};`, '',
+    `assign ${out('q1')} = ${readExpr(read('raddr1'))};`,
+    `assign ${out('q2')} = ${readExpr(read('raddr2'))};`,
+  ];
+};
+
 // The Sequence block is stimulus for interactive simulation, but it is fully deterministic (a fixed list plus
 // an index that only ever counts up), so it emits as ordinary synthesizable hardware: an index register plus a
 // combinational ROM lookup, exactly reproducing eval()/next() in library.ts (including the "hold at 0 once past
@@ -400,12 +476,12 @@ GENERATORS.seq = ({ b, out, clk, rst, alloc }) => {
 // comes from `read`/`out`, which resolve through the block's own `ports()` (design/library.ts's `instance`
 // definition), so it is always exactly the ports the target module currently has — a stale connection to a
 // renamed/removed port would already have been rejected as a "dangling" netlist error before emission runs.
-GENERATORS.instance = ({ b, read, out, clk, rst, design }) => {
+GENERATORS.instance = ({ b, read, out, clk, rst, design, instName }) => {
   const childKey = str(b.params, 'module', '');
   if (!childKey || !design.modules[childKey]) throw new Error(`Instance "${b.id}" refers to a module that does not exist.`);
   const ports = portsOfBlock(b);
   const conn = [`.${clk}(${clk})`, `.${rst}(${rst})`, ...ports.map(p => `.${p.name}(${p.dir === 'in' ? read(p.name) : out(p.name)})`)];
-  return [`${sanitize(childKey)} ${b.id} (${conn.join(', ')});`];
+  return [`${sanitize(childKey)} ${instName} (${conn.join(', ')});`];
 };
 
 // ---------- module/design text ----------

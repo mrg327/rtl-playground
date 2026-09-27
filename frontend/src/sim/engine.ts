@@ -33,11 +33,18 @@ export function compile(m: Module, extraProblems: Problem[] = []): Compiled {
 
   // Dependency graph among blocks whose outputs depend on inputs.
   const dependsOnInputs = (b: Block) => { const k = defOf(b.type).kind; return k === 'comb' || k === 'mixed' || k === 'alias'; };
+  // A 'mixed' block (e.g. a memory) may declare `depPorts`: only those input ports feed its eval() output this
+  // cycle (e.g. a RAM/register-file's read address), so only they create an ordering edge. Every other input
+  // (e.g. write data/address, which only ever affects next()'s state, never eval()) is treated as if the block
+  // were 'seq' for ordering purposes — exactly like a register's D input already is — so a normal read-modify
+  // write-back path (a memory's own read feeding logic that feeds its own write data) is not mistaken for a
+  // combinational loop. Blocks that don't declare `depPorts` keep depending on every input, as before.
+  const dependsOnPort = (b: Block, port: string): boolean => { if (!dependsOnInputs(b)) return false; const dp = defOf(b.type).depPorts; return dp ? dp(b.params).includes(port) : true; };
   const indeg = new Map<string, number>(); const succ = new Map<string, string[]>();
   for (const b of m.blocks) { indeg.set(b.id, 0); succ.set(b.id, []); }
   for (const net of netlist.nets) {
     const drv = net.drivers[0]; if (!drv) continue;
-    for (const l of net.loads) { const lb = netlist.blocks.get(l.b)!; if (!dependsOnInputs(lb) || l.b === drv.b && !dependsOnInputs(lb)) continue; if (l.b === drv.b) { indeg.set(l.b, indeg.get(l.b)! + 1); succ.get(drv.b)!.push(l.b); continue; } succ.get(drv.b)!.push(l.b); indeg.set(l.b, indeg.get(l.b)! + 1); }
+    for (const l of net.loads) { const lb = netlist.blocks.get(l.b)!; if (!dependsOnPort(lb, l.p)) continue; if (l.b === drv.b) { indeg.set(l.b, indeg.get(l.b)! + 1); succ.get(drv.b)!.push(l.b); continue; } succ.get(drv.b)!.push(l.b); indeg.set(l.b, indeg.get(l.b)! + 1); }
     // label pins: labels are alias blocks, treat driver -> label as dependency too (handled: label loads are in net.pins not loads)
     for (const p of net.pins) { const pb = netlist.blocks.get(p.b)!; if (pb.type === 'label' && p.b !== drv.b) { succ.get(drv.b)!.push(p.b); indeg.set(p.b, indeg.get(p.b)! + 1); } }
   }

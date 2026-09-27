@@ -115,7 +115,9 @@ function expand(
       const width = portWidth(b, b.type === 'in' ? 'y' : 'a');
       nb = { ...b, id: pfx(prefix, b.id), type: 'buf', params: normalizeParams('buf', { width }) };
     } else {
-      nb = { ...b, id: pfx(prefix, b.id), params: { ...b.params } };
+      // Share `params` with the design, not a copy: input stimulus (Store.stimulus) edits an `in` block's
+      // value in place and the running simulator must see it without a recompile, as before flattening.
+      nb = { ...b, id: pfx(prefix, b.id) };
     }
     blocks.push(nb);
     if (b.trace) { const tk = traceKeyFor(nb); if (tk) traced.push({ key: `${nb.id}.${tk.pin}`, label: pfx(prefix, b.label || b.id), width: tk.width }); }

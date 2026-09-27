@@ -1,0 +1,872 @@
+{
+ "version": 2,
+ "name": "Search window SAD",
+ "top": "top",
+ "options": {
+  "resetStyle": "sync_high",
+  "xUntilReset": false,
+  "clockName": "clk",
+  "resetName": "rst"
+ },
+ "modules": {
+  "top": {
+   "source": "schematic",
+   "ports": [],
+   "blocks": [
+    {
+     "id": "pixel_in",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": 0
+     },
+     "x": 40,
+     "y": 110,
+     "trace": true,
+     "label": "pixel_in"
+    },
+    {
+     "id": "load",
+     "type": "in",
+     "params": {
+      "width": 1,
+      "value": 0
+     },
+     "x": 40,
+     "y": 190,
+     "trace": true,
+     "label": "load"
+    },
+    {
+     "id": "compute",
+     "type": "in",
+     "params": {
+      "width": 1,
+      "value": 0
+     },
+     "x": 40,
+     "y": 250,
+     "trace": true,
+     "label": "compute"
+    },
+    {
+     "id": "offset",
+     "type": "in",
+     "params": {
+      "width": 4,
+      "value": 1
+     },
+     "x": 40,
+     "y": 340,
+     "trace": true,
+     "label": "offset"
+    },
+    {
+     "id": "wctr",
+     "type": "counter",
+     "params": {
+      "width": 4,
+      "en": true,
+      "load": false,
+      "down": false,
+      "init": 0
+     },
+     "x": 220,
+     "y": 180,
+     "trace": true,
+     "label": "write addr"
+    },
+    {
+     "id": "rctr",
+     "type": "counter",
+     "params": {
+      "width": 4,
+      "en": true,
+      "load": false,
+      "down": false,
+      "init": 0
+     },
+     "x": 220,
+     "y": 300,
+     "trace": true,
+     "label": "read addr"
+    },
+    {
+     "id": "radd",
+     "type": "add",
+     "params": {
+      "width": 4,
+      "cin": false,
+      "cout": false
+     },
+     "x": 340,
+     "y": 300,
+     "trace": false,
+     "label": "+offset"
+    },
+    {
+     "id": "win",
+     "type": "ram",
+     "params": {
+      "width": 8,
+      "depth": 16,
+      "readStyle": "async",
+      "port2": false,
+      "contents": ""
+     },
+     "x": 460,
+     "y": 140,
+     "trace": true,
+     "label": "window"
+    },
+    {
+     "id": "ref",
+     "type": "rom",
+     "params": {
+      "width": 8,
+      "depth": 16,
+      "readStyle": "async",
+      "contents": "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15"
+     },
+     "x": 460,
+     "y": 300,
+     "trace": true,
+     "label": "reference"
+    },
+    {
+     "id": "sub1",
+     "type": "sub",
+     "params": {
+      "width": 8
+     },
+     "x": 600,
+     "y": 160,
+     "trace": false
+    },
+    {
+     "id": "sub2",
+     "type": "sub",
+     "params": {
+      "width": 8
+     },
+     "x": 600,
+     "y": 260,
+     "trace": false
+    },
+    {
+     "id": "absmux",
+     "type": "mux",
+     "params": {
+      "n": 2,
+      "width": 8
+     },
+     "x": 720,
+     "y": 190,
+     "trace": false,
+     "label": "abs"
+    },
+    {
+     "id": "ext1",
+     "type": "ext",
+     "params": {
+      "inw": 8,
+      "outw": 12,
+      "signed": false
+     },
+     "x": 820,
+     "y": 200,
+     "trace": false
+    },
+    {
+     "id": "lbl_acc",
+     "type": "label",
+     "params": {
+      "name": "sad_acc",
+      "width": 12
+     },
+     "x": 900,
+     "y": 380,
+     "trace": false
+    },
+    {
+     "id": "add_acc",
+     "type": "add",
+     "params": {
+      "width": 12,
+      "cin": false,
+      "cout": false
+     },
+     "x": 920,
+     "y": 200,
+     "trace": false
+    },
+    {
+     "id": "acc",
+     "type": "reg",
+     "params": {
+      "width": 12,
+      "en": true,
+      "rst": "sync",
+      "init": 0
+     },
+     "x": 1040,
+     "y": 190,
+     "trace": true,
+     "label": "SAD"
+    },
+    {
+     "id": "lbl_acc2",
+     "type": "label",
+     "params": {
+      "name": "sad_acc",
+      "width": 12
+     },
+     "x": 1000,
+     "y": 240,
+     "trace": false
+    },
+    {
+     "id": "win_out",
+     "type": "out",
+     "params": {
+      "width": 8
+     },
+     "x": 600,
+     "y": 100,
+     "trace": true,
+     "label": "win_q"
+    },
+    {
+     "id": "ref_out",
+     "type": "out",
+     "params": {
+      "width": 8
+     },
+     "x": 600,
+     "y": 340,
+     "trace": true,
+     "label": "ref_q"
+    },
+    {
+     "id": "sad_out",
+     "type": "out",
+     "params": {
+      "width": 12
+     },
+     "x": 1160,
+     "y": 197,
+     "trace": true,
+     "label": "sad"
+    }
+   ],
+   "wires": [
+    {
+     "id": "w1",
+     "from": {
+      "b": "load",
+      "p": "y"
+     },
+     "to": {
+      "b": "wctr",
+      "p": "en"
+     }
+    },
+    {
+     "id": "w2",
+     "from": {
+      "b": "compute",
+      "p": "y"
+     },
+     "to": {
+      "b": "rctr",
+      "p": "en"
+     }
+    },
+    {
+     "id": "w3",
+     "from": {
+      "b": "rctr",
+      "p": "q"
+     },
+     "to": {
+      "b": "radd",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w4",
+     "from": {
+      "b": "offset",
+      "p": "y"
+     },
+     "to": {
+      "b": "radd",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w5",
+     "from": {
+      "b": "pixel_in",
+      "p": "y"
+     },
+     "to": {
+      "b": "win",
+      "p": "d"
+     }
+    },
+    {
+     "id": "w6",
+     "from": {
+      "b": "wctr",
+      "p": "q"
+     },
+     "to": {
+      "b": "win",
+      "p": "waddr"
+     }
+    },
+    {
+     "id": "w7",
+     "from": {
+      "b": "load",
+      "p": "y"
+     },
+     "to": {
+      "b": "win",
+      "p": "we"
+     }
+    },
+    {
+     "id": "w8",
+     "from": {
+      "b": "radd",
+      "p": "s"
+     },
+     "to": {
+      "b": "win",
+      "p": "raddr"
+     }
+    },
+    {
+     "id": "w9",
+     "from": {
+      "b": "rctr",
+      "p": "q"
+     },
+     "to": {
+      "b": "ref",
+      "p": "raddr"
+     }
+    },
+    {
+     "id": "w10",
+     "from": {
+      "b": "win",
+      "p": "q"
+     },
+     "to": {
+      "b": "sub1",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w11",
+     "from": {
+      "b": "ref",
+      "p": "q"
+     },
+     "to": {
+      "b": "sub1",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w12",
+     "from": {
+      "b": "ref",
+      "p": "q"
+     },
+     "to": {
+      "b": "sub2",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w13",
+     "from": {
+      "b": "win",
+      "p": "q"
+     },
+     "to": {
+      "b": "sub2",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w14",
+     "from": {
+      "b": "sub1",
+      "p": "d"
+     },
+     "to": {
+      "b": "absmux",
+      "p": "i0"
+     }
+    },
+    {
+     "id": "w15",
+     "from": {
+      "b": "sub2",
+      "p": "d"
+     },
+     "to": {
+      "b": "absmux",
+      "p": "i1"
+     }
+    },
+    {
+     "id": "w16",
+     "from": {
+      "b": "sub1",
+      "p": "bo"
+     },
+     "to": {
+      "b": "absmux",
+      "p": "s"
+     }
+    },
+    {
+     "id": "w17",
+     "from": {
+      "b": "absmux",
+      "p": "y"
+     },
+     "to": {
+      "b": "ext1",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w18",
+     "from": {
+      "b": "ext1",
+      "p": "y"
+     },
+     "to": {
+      "b": "add_acc",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w19",
+     "from": {
+      "b": "lbl_acc",
+      "p": "o"
+     },
+     "to": {
+      "b": "add_acc",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w20",
+     "from": {
+      "b": "add_acc",
+      "p": "s"
+     },
+     "to": {
+      "b": "acc",
+      "p": "d"
+     }
+    },
+    {
+     "id": "w21",
+     "from": {
+      "b": "compute",
+      "p": "y"
+     },
+     "to": {
+      "b": "acc",
+      "p": "en"
+     }
+    },
+    {
+     "id": "w22",
+     "from": {
+      "b": "acc",
+      "p": "q"
+     },
+     "to": {
+      "b": "lbl_acc2",
+      "p": "i"
+     }
+    },
+    {
+     "id": "w23",
+     "from": {
+      "b": "win",
+      "p": "q"
+     },
+     "to": {
+      "b": "win_out",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w24",
+     "from": {
+      "b": "ref",
+      "p": "q"
+     },
+     "to": {
+      "b": "ref_out",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w25",
+     "from": {
+      "b": "acc",
+      "p": "q"
+     },
+     "to": {
+      "b": "sad_out",
+      "p": "a"
+     }
+    }
+   ],
+   "notes": [
+    {
+     "id": "note1",
+     "x": 40,
+     "y": 20,
+     "w": 700,
+     "h": 80,
+     "text": "Loads a 16-pixel row into a RAM (one pixel per cycle while load=1), then reads it back with a horizontal offset against a 16-pixel reference row stored in a ROM, accumulating the sum of absolute differences (SAD) — the core operation of a block-matching motion estimator. The reference is 0,1,…,15; the loaded row is the same, so with offset=0 the SAD is 0, and with offset=1 it is 30 (a wrap-around read makes the last pixel disagree by 15)."
+    }
+   ],
+   "locked": []
+  }
+ },
+ "tests": [
+  {
+   "name": "Load the row, then SAD against the reference at offset 1",
+   "module": "top",
+   "columns": [
+    "pixel_in",
+    "load",
+    "compute",
+    "offset",
+    "win_q",
+    "ref_q",
+    "sad"
+   ],
+   "rows": [
+    [
+     "0",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "1",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "2",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "3",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "4",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "5",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "6",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "7",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "8",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "9",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "10",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "11",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "12",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "13",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "14",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "15",
+     "1",
+     "0",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "1",
+     "0",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "1",
+     "1",
+     "X",
+     "X",
+     "X"
+    ],
+    [
+     "0",
+     "0",
+     "0",
+     "1",
+     "X",
+     "X",
+     "30"
+    ]
+   ]
+  }
+ ],
+ "views": {
+  "wave": {
+   "signals": [],
+   "radix": {}
+  }
+ }
+}

@@ -2,9 +2,10 @@
 
 Serves the built front end from ``static/`` and a small JSON API under ``/api``:
 a sandboxed file API rooted at the launch directory, optional Yosys
-endpoints backed by ``yowasp-yosys`` when that extra is installed, and the
+endpoints backed by ``yowasp-yosys`` when that extra is installed, the
 project API that runs open-source tools as background jobs (DESIGN.md
-section 13).
+section 13), and the Surfer waveform viewer served read-only from a
+per-user cache at ``/surfer/`` once downloaded (see rtl_playground.surfer).
 
 Security model (see DESIGN.md section 10): the server binds to loopback only,
 every ``/api`` request must carry a loopback ``Host`` (and matching ``Origin``
@@ -39,7 +40,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from rtl_playground import __version__, flows
+from rtl_playground import __version__, flows, surfer
 from rtl_playground.jobs import BusyError, Command, HostStep, Job, JobFailed, JobManager
 from rtl_playground.project import (
     PLATFORMS,
@@ -64,6 +65,8 @@ MAX_RAW_BYTES = 512 * 1024 * 1024
 SKIP_DIRS = frozenset({"node_modules", ".venv", "__pycache__"})
 MAX_BODY_BYTES = 32 * 1024 * 1024
 HDL_TIMEOUT_S = 60.0
+# Where the (lazily downloaded) Surfer waveform viewer is served; see rtl_playground.surfer.
+SURFER_ROUTE = "/surfer"
 
 MIME_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -344,6 +347,7 @@ class PlaygroundServer(ThreadingHTTPServer):
         self.token = token or secrets.token_hex(16)
         self.debug = debug
         self.hdl_lock = threading.Lock()
+        self.surfer_lock = threading.Lock()
         self.toolchain = ToolchainCache()
         self.jobs = JobManager(lambda: self.toolchain.get())
         super().__init__(("127.0.0.1", port), PlaygroundHandler)
@@ -432,16 +436,63 @@ class PlaygroundHandler(SimpleHTTPRequestHandler):
         return urlsplit(self.path).path
 
     def do_GET(self) -> None:
-        if self._url_path().startswith("/api/") or self._url_path() == "/api":
+        url_path = self._url_path()
+        if url_path.startswith("/api/") or url_path == "/api":
             self._dispatch_api()
+            return
+        if url_path == SURFER_ROUTE or url_path.startswith(SURFER_ROUTE + "/"):
+            self._serve_surfer(url_path)
             return
         self._serve_static()
 
     def do_HEAD(self) -> None:
-        if self._url_path().startswith("/api"):
+        url_path = self._url_path()
+        if url_path.startswith("/api"):
             self._send_json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"})
             return
+        if url_path == SURFER_ROUTE or url_path.startswith(SURFER_ROUTE + "/"):
+            self._serve_surfer(url_path)
+            return
         self._serve_static()
+
+    def _serve_surfer(self, url_path: str) -> None:
+        """Serve the installed Surfer web build read-only. Not under ``static_dir``: it is
+        downloaded per-user into a cache directory, not shipped in the wheel (see surfer.py)."""
+        if surfer.installed_version() is None:
+            self.send_error(HTTPStatus.NOT_FOUND, "Surfer is not installed; POST /api/surfer/install")
+            return
+        root = surfer.surfer_dir()
+        rel = url_path[len(SURFER_ROUTE):].lstrip("/") or "index.html"
+        if "\x00" in rel:
+            self.send_error(HTTPStatus.FORBIDDEN, "invalid path")
+            return
+        parts = [p for p in rel.split("/") if p not in ("", ".")]
+        if any(p == ".." for p in parts):
+            self.send_error(HTTPStatus.FORBIDDEN, "invalid path")
+            return
+        target = root.joinpath(*parts) if parts else root / "index.html"
+        try:
+            resolved = target.resolve()
+            root_resolved = root.resolve()
+        except OSError:
+            self.send_error(HTTPStatus.NOT_FOUND, "File not found")
+            return
+        if resolved != root_resolved and root_resolved not in resolved.parents:
+            self.send_error(HTTPStatus.FORBIDDEN, "invalid path")
+            return
+        if not resolved.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND, "File not found")
+            return
+        ctype = MIME_TYPES.get(resolved.suffix.lower(), "application/octet-stream")
+        size = resolved.stat().st_size
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(size))
+        self._no_store = resolved.name == "index.html"
+        self.end_headers()
+        if self.command != "HEAD":
+            with resolved.open("rb") as fh:
+                shutil.copyfileobj(fh, self.wfile)
 
     def _serve_static(self) -> None:
         static_dir = self.server.static_dir
@@ -821,6 +872,25 @@ class PlaygroundHandler(SimpleHTTPRequestHandler):
             raise ApiError(404, "no such job")
         return 200, job.to_json()
 
+    # ---- Surfer (the waveform viewer) --------------------------------------------- #
+
+    def api_surfer(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
+        return 200, surfer.describe()
+
+    def api_surfer_install(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
+        # Synchronous, not a JobManager job: the download is ~15 MB and takes a few seconds,
+        # and routing it through the single-job-at-a-time project job manager would make it
+        # contend with (or be blocked by) an unrelated synthesis or test run, for no benefit
+        # since there is nothing project-scoped or cancellable worth a log stream here.
+        with self.server.surfer_lock:
+            if surfer.installed_version() is not None:
+                return 200, surfer.describe()
+            try:
+                surfer.install()
+            except surfer.SurferError as exc:
+                raise ApiError(502, str(exc)) from exc
+            return 200, surfer.describe()
+
     def api_raw(self, query: dict[str, str], body: dict[str, Any]) -> tuple[int, Any]:
         """Serve a tool artifact (layout image, waveform, report) as bytes. Read-only."""
         target = self.server.resolve(query.get("path", ""))
@@ -858,6 +928,8 @@ API_ROUTES = {
     ("GET", "/api/job"): PlaygroundHandler.api_job,
     ("POST", "/api/job/cancel"): PlaygroundHandler.api_job_cancel,
     ("GET", "/api/raw"): PlaygroundHandler.api_raw,
+    ("GET", "/api/surfer"): PlaygroundHandler.api_surfer,
+    ("POST", "/api/surfer/install"): PlaygroundHandler.api_surfer_install,
 }
 
 

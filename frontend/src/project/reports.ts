@@ -34,7 +34,11 @@ export function renderLintReport(el: HTMLElement, job: JobInfo | undefined, open
   el.onclick = e => { const it = (e.target as HTMLElement).closest<HTMLElement>('.item'); if (!it) return; const x = d[+it.dataset.i!]; if (x.file) open(x.file, x.line ?? undefined); };
 }
 
-export function renderTestReport(el: HTMLElement, job: JobInfo | undefined, project: ProjectInfo | null, raw: (p: string) => string): void {
+export function renderTestReport(el: HTMLElement, job: JobInfo | undefined, project: ProjectInfo | null, raw: (p: string) => string, openWaves: (path: string) => void): void {
+  el.onclick = e => {
+    const a = (e.target as HTMLElement).closest<HTMLAnchorElement>('a.pj-wave-open');
+    if (a) { e.preventDefault(); openWaves(a.dataset.path!); }
+  };
   if (!project?.tests.length) return none(el, 'This project defines no tests. Add a cocotb module under <code>tb/</code> and list it in <code>tests</code> in <code>rtlp-project.json</code>.');
   if (!job) return none(el, `Run <b>Test</b> to run ${project.tests.map(t => `<code>${esc(t.module)}</code>`).join(', ')} on Verilator.`);
   const suites = (job.result.suites ?? []) as Suite[];
@@ -43,7 +47,7 @@ export function renderTestReport(el: HTMLElement, job: JobInfo | undefined, proj
   const broken = suites.filter(s => s.missing).length;
   let h = `<div class="pj-sum">${broken ? `${broken} test suite${broken === 1 ? '' : 's'} did not run · ` : ''}${passed} / ${job.result.total} tests passed</div>`;
   for (const s of suites) {
-    h += `<h4>${esc(s.name)} ${s.waves ? `<a class="pj-wave" href="${raw(s.waves)}" download title="Open in Surfer (surfer-project.org) or GTKWave">waves ↓</a>` : ''}</h4>`;
+    h += `<h4>${esc(s.name)} ${s.waves ? `<a href="#" class="pj-wave-open" data-path="${esc(s.waves)}" title="Open in the Waves tab (Surfer)">waves</a> <a class="pj-wave" href="${raw(s.waves)}" download title="Download the FST for GTKWave or a desktop copy of Surfer">↓</a>` : ''}</h4>`;
     if (s.missing) h += `<div class="item error">${esc(s.message ?? 'no results')}</div>`;
     h += `<table class="pj-table"><tr><th></th><th>test</th><th>sim time</th><th>wall</th><th>message</th></tr>` +
       s.cases.map(c => `<tr class="${c.status}"><td>${c.status === 'passed' ? '✓' : c.status === 'skipped' ? '–' : '✗'}</td><td>${esc(c.name)}</td><td>${c.simTimeNs != null ? fmtTime(c.simTimeNs) : ''}</td><td>${c.time != null ? c.time.toFixed(2) + ' s' : ''}</td><td class="msg">${esc(c.message)}</td></tr>`).join('') + `</table>`;

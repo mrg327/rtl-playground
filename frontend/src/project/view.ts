@@ -3,17 +3,19 @@ import './project.css';
 import type { Host, JobInfo, JobKind, ProjectInfo, ProjectRef, ToolsInfo } from '../host/api';
 import { CodeEditor, type LineDiagnostic } from './editor';
 import { renderFlowReport, renderTestReport, renderLintReport } from './reports';
+import { WavesPanel } from './waves';
 
 const esc = (t: string) => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 const EDITABLE = /\.(sv|svh|v|vh|py|sdc|tcl|json|mk|md|txt|mem|hex)$/i;
 const POLL_MS = 400;
-type Tab = 'log' | 'problems' | 'tests' | 'reports';
+type Tab = 'log' | 'problems' | 'tests' | 'reports' | 'waves';
 
 interface FileNode { path: string; name: string; dir: boolean; children?: FileNode[]; open?: boolean }
 
 export class ProjectView {
   el: Record<string, HTMLElement> = {};
   editor!: CodeEditor;
+  waves!: WavesPanel;
   tools: ToolsInfo | null = null;
   projects: ProjectRef[] = [];
   project: ProjectInfo | null = null;
@@ -47,15 +49,17 @@ export class ProjectView {
       </div>
       <aside class="pj-side"><h2>Constraints and flow</h2><div id="pj-form" class="pj-form"></div></aside>
       <section class="pj-out">
-        <div class="tabs"><button data-tab="log" class="active">Log</button><button data-tab="problems">Problems</button><button data-tab="tests">Tests</button><button data-tab="reports">Reports</button>
+        <div class="tabs"><button data-tab="log" class="active">Log</button><button data-tab="problems">Problems</button><button data-tab="tests">Tests</button><button data-tab="waves">Waves</button><button data-tab="reports">Reports</button>
           <span class="spacer"></span><span id="pj-status" class="pj-status"></span></div>
         <pre class="panel active" id="pj-log"></pre>
         <div class="panel" id="pj-problems"></div>
         <div class="panel" id="pj-tests"></div>
+        <div class="panel" id="pj-waves"></div>
         <div class="panel" id="pj-reports"></div>
       </section>`;
-    for (const id of ['pj-select', 'pj-newproj', 'pj-tools', 'pj-lint', 'pj-test', 'pj-synth', 'pj-stage', 'pj-flow', 'pj-cancel', 'pj-new', 'pj-reload', 'pj-tree', 'pj-path', 'pj-save', 'pj-editor', 'pj-form', 'pj-status', 'pj-log', 'pj-problems', 'pj-tests', 'pj-reports']) this.el[id] = root.querySelector('#' + id)!;
+    for (const id of ['pj-select', 'pj-newproj', 'pj-tools', 'pj-lint', 'pj-test', 'pj-synth', 'pj-stage', 'pj-flow', 'pj-cancel', 'pj-new', 'pj-reload', 'pj-tree', 'pj-path', 'pj-save', 'pj-editor', 'pj-form', 'pj-status', 'pj-log', 'pj-problems', 'pj-tests', 'pj-waves', 'pj-reports']) this.el[id] = root.querySelector('#' + id)!;
     this.editor = new CodeEditor(this.el['pj-editor'], { onChange: () => this.markDirty(), onSave: () => void this.save() });
+    this.waves = new WavesPanel(this.el['pj-waves'], host, toast);
     this.bind();
   }
 
@@ -64,7 +68,7 @@ export class ProjectView {
     if (this.started) return;
     this.started = true;
     if (!this.host.available) { this.el['pj-tree'].innerHTML = `<p class="pj-empty">Projects need the local host: start the app with <code>rtl-playground</code> or <code>uvx rtl-playground</code>.</p>`; this.setBusy(false); return; }
-    await Promise.all([this.loadTools(false), this.loadProjects()]);
+    await Promise.all([this.loadTools(false), this.loadProjects(), this.waves.refresh()]);
     const { jobs } = await this.host.jobs();
     const running = jobs.find(j => j.status === 'running' || j.status === 'queued');
     for (const j of jobs) if (j.project === this.projectPath && j.status !== 'running') this.lastByKind[j.kind] = j;
@@ -368,15 +372,21 @@ export class ProjectView {
   renderResults(): void {
     const open = (file: string, line?: number) => void this.openFile(this.rel(file), line);
     renderLintReport(this.el['pj-problems'], this.lastByKind.lint, open);
-    renderTestReport(this.el['pj-tests'], this.lastByKind.test, this.project, p => this.host.rawUrl(this.rel(p)));
+    renderTestReport(this.el['pj-tests'], this.lastByKind.test, this.project, p => this.host.rawUrl(this.rel(p)), p => this.openWaves(this.rel(p)));
     const flow = [this.lastByKind.flow, this.lastByKind.synth].filter(Boolean).sort((a, b) => (b!.ended ?? 0) - (a!.ended ?? 0))[0];
     renderFlowReport(this.el['pj-reports'], flow, this.project, p => this.host.rawUrl(this.rel(p)), open);
     this.applyDiagnostics();
   }
 
+  openWaves(path: string): void {
+    this.tab = 'waves'; this.syncTabs();
+    this.waves.open(path);
+    void this.waves.refresh(); // pick up an install that happened elsewhere before this run
+  }
+
   syncTabs(): void {
     this.root.querySelectorAll<HTMLButtonElement>('.pj-out .tabs button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === this.tab));
-    for (const t of ['log', 'problems', 'tests', 'reports']) this.el[`pj-${t}`].classList.toggle('active', t === this.tab);
+    for (const t of ['log', 'problems', 'tests', 'waves', 'reports']) this.el[`pj-${t}`].classList.toggle('active', t === this.tab);
   }
 
   // ---------- events ----------

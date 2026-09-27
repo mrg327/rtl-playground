@@ -15,6 +15,8 @@ export interface ProjectInfo {
   platform: PlatformInfo;
 }
 export type JobKind = 'lint' | 'test' | 'synth' | 'flow' | 'setup';
+// ---- Surfer, the waveform viewer embedded in the Waves tab (DESIGN.md section 7) ----
+export interface SurferInfo { installed: boolean; version: string | null; sizeMB: number }
 export type JobStatus = 'queued' | 'running' | 'passed' | 'failed' | 'cancelled' | 'error';
 export interface JobInfo {
   id: string; kind: JobKind; title: string; project: string; status: JobStatus; step: string | null; stepIndex: number; steps: string[];
@@ -55,6 +57,9 @@ export class Host {
   job(id: string, since: number): Promise<JobInfo> { return this.call('GET', `/api/job?id=${encodeURIComponent(id)}&since=${since}`); }
   cancel(id: string): Promise<JobInfo> { return this.call('POST', `/api/job/cancel?id=${encodeURIComponent(id)}`, {}); }
   rawUrl(path: string): string { return `/api/raw?path=${encodeURIComponent(path)}`; }
+
+  surfer(): Promise<SurferInfo> { return this.call('GET', '/api/surfer'); }
+  installSurfer(): Promise<SurferInfo> { return this.call('POST', '/api/surfer/install', {}); }
 }
 
 export function download(name: string, text: string, type = 'application/json'): void {

@@ -159,3 +159,60 @@ function emit(file: string, d: Design): void {
   test(d, 'Stream 0101110110', ['found'], [['0'], ['0'], ['0'], ['0'], ['0'], ['1'], ['0'], ['0'], ['0'], ['1'], ['0']]);
   emit('10-pattern-detector.rtlp', d);
 }
+// 11 register file + ALU datapath (DESIGN.md section 4: Memory group)
+{
+  const d = design('Register file and ALU datapath'); const m = d.modules.top;
+  note(m, 40, 20, 660, 66, 'A tiny RISC-style datapath: two async read ports feed the ALU, and the result writes back through the third port. Register 0 is hard-wired to zero, so a write to it (row 4) is silently dropped — read it back on row 5 to check. The register file starts loaded with r1=3, r2=4, r3=9 (see "Contents" in its inspector).');
+  add(m, 'ra1', 'in', 40, 110, { width: 3, value: 1 }, { label: 'ra1' }); add(m, 'ra2', 'in', 40, 170, { width: 3, value: 2 }, { label: 'ra2' });
+  add(m, 'wa', 'in', 40, 260, { width: 3, value: 0 }, { label: 'wa' }); add(m, 'we', 'in', 40, 320, { width: 1, value: 0 }, { label: 'we' });
+  add(m, 'op', 'in', 40, 410, { width: 3, value: 0 }, { label: 'op' });
+  add(m, 'rf1', 'regfile', 260, 90, { width: 8, depth: 8, zeroReg: true, contents: '0 3 4 9 0 0 0 0' }, { label: 'regs' });
+  wire(m, 'ra1.y', 'rf1.raddr1'); wire(m, 'ra2.y', 'rf1.raddr2'); wire(m, 'wa.y', 'rf1.waddr'); wire(m, 'we.y', 'rf1.we');
+  add(m, 'alu1', 'alu', 480, 100, { width: 8 }); wire(m, 'rf1.q1', 'alu1.a'); wire(m, 'rf1.q2', 'alu1.b'); wire(m, 'op.y', 'alu1.op');
+  wire(m, 'alu1.y', 'rf1.d', 420);
+  add(m, 'q1_out', 'out', 660, 97, { width: 8 }, { label: 'q1' }); wire(m, 'rf1.q1', 'q1_out.a');
+  add(m, 'q2_out', 'out', 660, 137, { width: 8 }, { label: 'q2' }); wire(m, 'rf1.q2', 'q2_out.a');
+  add(m, 'y_out', 'out', 660, 187, { width: 8 }, { label: 'y' }); wire(m, 'alu1.y', 'y_out.a');
+  test(d, 'Read, write back, and check register 0 stays zero', ['ra1', 'ra2', 'wa', 'we', 'op', 'q1_out', 'q2_out', 'y_out'], [
+    ['1', '2', '0', '0', '0', '3', '4', '7'],
+    ['1', '2', '3', '1', '0', '3', '4', '7'],
+    ['3', '0', '0', '0', '0', '7', '0', '7'],
+    ['1', '0', '0', '1', '0', '3', '0', '3'],
+    ['0', '0', '0', '0', '0', '0', '0', '0'],
+  ]);
+  emit('11-regfile-alu.rtlp', d);
+}
+// 12 search-window line buffer + SAD (DESIGN.md section 4 and 13: motion-estimation block matching)
+{
+  const d = design('Search window SAD'); const m = d.modules.top;
+  note(m, 40, 20, 700, 80, 'Loads a 16-pixel row into a RAM (one pixel per cycle while load=1), then reads it back with a horizontal offset against a 16-pixel reference row stored in a ROM, accumulating the sum of absolute differences (SAD) — the core operation of a block-matching motion estimator. The reference is 0,1,…,15; the loaded row is the same, so with offset=0 the SAD is 0, and with offset=1 it is 30 (a wrap-around read makes the last pixel disagree by 15).');
+  add(m, 'pixel_in', 'in', 40, 110, { width: 8, value: 0 }, { label: 'pixel_in' });
+  add(m, 'load', 'in', 40, 190, { width: 1, value: 0 }, { label: 'load' });
+  add(m, 'compute', 'in', 40, 250, { width: 1, value: 0 }, { label: 'compute' });
+  add(m, 'offset', 'in', 40, 340, { width: 4, value: 1 }, { label: 'offset' });
+  add(m, 'wctr', 'counter', 220, 180, { width: 4, en: true }, { label: 'write addr' }); wire(m, 'load.y', 'wctr.en');
+  add(m, 'rctr', 'counter', 220, 300, { width: 4, en: true }, { label: 'read addr' }); wire(m, 'compute.y', 'rctr.en');
+  add(m, 'radd', 'add', 340, 300, { width: 4, cout: false }, { label: '+offset' }); wire(m, 'rctr.q', 'radd.a'); wire(m, 'offset.y', 'radd.b');
+  add(m, 'win', 'ram', 460, 140, { width: 8, depth: 16, readStyle: 'async' }, { label: 'window' });
+  wire(m, 'pixel_in.y', 'win.d'); wire(m, 'wctr.q', 'win.waddr'); wire(m, 'load.y', 'win.we'); wire(m, 'radd.s', 'win.raddr');
+  add(m, 'ref', 'rom', 460, 300, { width: 8, depth: 16, readStyle: 'async', contents: '0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15' }, { label: 'reference' });
+  wire(m, 'rctr.q', 'ref.raddr');
+  add(m, 'sub1', 'sub', 600, 160, { width: 8 }); wire(m, 'win.q', 'sub1.a'); wire(m, 'ref.q', 'sub1.b');
+  add(m, 'sub2', 'sub', 600, 260, { width: 8 }); wire(m, 'ref.q', 'sub2.a'); wire(m, 'win.q', 'sub2.b');
+  add(m, 'absmux', 'mux', 720, 190, { n: 2, width: 8 }, { label: 'abs' }); wire(m, 'sub1.d', 'absmux.i0'); wire(m, 'sub2.d', 'absmux.i1'); wire(m, 'sub1.bo', 'absmux.s');
+  add(m, 'ext1', 'ext', 820, 200, { inw: 8, outw: 12, signed: false }); wire(m, 'absmux.y', 'ext1.a');
+  add(m, 'lbl_acc', 'label', 900, 380, { name: 'sad_acc', width: 12 });
+  add(m, 'add_acc', 'add', 920, 200, { width: 12, cout: false }); wire(m, 'ext1.y', 'add_acc.a'); wire(m, 'lbl_acc.o', 'add_acc.b');
+  add(m, 'acc', 'reg', 1040, 190, { width: 12, en: true }, { label: 'SAD' }); wire(m, 'add_acc.s', 'acc.d'); wire(m, 'compute.y', 'acc.en');
+  add(m, 'lbl_acc2', 'label', 1000, 240, { name: 'sad_acc', width: 12 }); wire(m, 'acc.q', 'lbl_acc2.i');
+  add(m, 'win_out', 'out', 600, 100, { width: 8 }, { label: 'win_q' }); wire(m, 'win.q', 'win_out.a');
+  add(m, 'ref_out', 'out', 600, 340, { width: 8 }, { label: 'ref_q' }); wire(m, 'ref.q', 'ref_out.a');
+  add(m, 'sad_out', 'out', 1160, 197, { width: 12 }, { label: 'sad' }); wire(m, 'acc.q', 'sad_out.a');
+  const cols = ['pixel_in', 'load', 'compute', 'offset', 'win_q', 'ref_q', 'sad'];
+  const rows: string[][] = [];
+  for (let i = 0; i < 16; i++) rows.push([String(i), '1', '0', '1', 'X', 'X', 'X']); // load window[i] = i, one pixel per cycle
+  for (let i = 0; i < 16; i++) rows.push(['0', '0', '1', '1', i === 0 ? '1' : 'X', i === 0 ? '0' : 'X', 'X']); // accumulate |window[(i+1)%16] - reference[i]|
+  rows.push(['0', '0', '0', '1', 'X', 'X', '30']); // sum_{i=0}^{15} |((i+1) mod 16) - i| = 15*1 + 15 = 30
+  test(d, 'Load the row, then SAD against the reference at offset 1', cols, rows);
+  emit('12-search-window-sad.rtlp', d);
+}

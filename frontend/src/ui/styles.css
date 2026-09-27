@@ -88,6 +88,9 @@ main{grid-column:2/3;grid-row:2/3;position:relative;overflow:hidden;display:flex
 .bottom .panel.active{display:block}
 .bottom.collapsed .panel{display:none!important}
 #wave.active{display:flex;height:100%}
+.panel.sv{padding:0}
+.panel.sv.active{display:flex}
+.panel.sv .cm-editor{height:100%;width:100%}
 #wave{--wave-hi:color-mix(in srgb,var(--hi) 22%,transparent);--wave-live:color-mix(in srgb,var(--sel) 8%,transparent);--wave-cursor:var(--hi)}
 .insp{padding:6px 12px 12px}
 .insp label{display:block;font-size:11px;color:var(--ink2);margin:8px 0 3px}

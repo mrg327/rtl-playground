@@ -11,6 +11,9 @@ import { runAll, type TestResult } from '../sim/tests';
 import { Host, download, upload, openFromHash } from '../host/api';
 import { pinKey } from '../model/netlist';
 import type { ProjectView } from '../project/view';
+import type { CodeEditor } from '../project/editor';
+import { emitDesign } from '../hdl/emit';
+import { emitTestbench, testableModules } from '../hdl/testbench';
 
 const EXAMPLES: Record<string, string> = import.meta.glob('../../../examples/*.rtlp', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 const esc = (t: string) => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
@@ -26,9 +29,10 @@ export class App {
   speed = 500;
   clipboard: { blocks: Block[]; wires: Wire[]; notes: Note[] } | null = null;
   commands: Command[] = [];
-  tab: 'wave' | 'tests' = 'wave';
+  tab: 'wave' | 'tests' | 'sv' = 'wave';
   mode: 'schematic' | 'project' = 'schematic';
   project: ProjectView | null = null;
+  svEditor: CodeEditor | null = null;
   testResults: TestResult[] | null = null;
   el: Record<string, HTMLElement> = {};
 
@@ -57,13 +61,16 @@ export class App {
       </main>
       <aside class="right"><h2>Selected</h2><div class="insp" id="insp"></div><h2>Problems</h2><div class="problems" id="problems"></div></aside>
       <section class="bottom" id="bottom">
-        <div class="tabs"><button data-tab="wave" class="active">Waveform</button><button data-tab="tests">Tests</button><span class="spacer"></span>
-          <button class="tool" id="wzoomout">−</button><button class="tool" id="wzoomin">+</button><button class="tool" id="wfit">Fit</button><button class="tool" id="wvcd">Export VCD</button><button class="tool" id="wjson">WaveDrom</button><button class="tool" id="wclear">Clear history</button><button class="tool" id="wtog">Hide</button></div>
+        <div class="tabs"><button data-tab="wave" class="active">Waveform</button><button data-tab="tests">Tests</button><button data-tab="sv">SystemVerilog</button><span class="spacer"></span>
+          <button class="tool" id="wzoomout">−</button><button class="tool" id="wzoomin">+</button><button class="tool" id="wfit">Fit</button><button class="tool" id="wvcd">Export VCD</button><button class="tool" id="wjson">WaveDrom</button><button class="tool" id="wclear">Clear history</button>
+          <button class="tool" id="svdownload">Export .sv</button><button class="tool" id="svtb">Export testbench</button><button class="tool" id="svsend">Send to project…</button>
+          <button class="tool" id="wtog">Hide</button></div>
         <div class="panel active" id="wave"></div>
         <div class="panel tests" id="tests"></div>
+        <div class="panel sv" id="sv"></div>
       </section>
       <div class="project" id="project"></div>`;
-    for (const id of ['file', 'new', 'open', 'save', 'examples', 'undo', 'redo', 'back', 'step', 'run', 'speed', 'rst', 'poweron', 'cycle', 'vmode', 'dim', 'fit', 'present', 'cmd', 'help', 'pal', 'canvas', 'insp', 'problems', 'bottom', 'wave', 'tests', 'wzoomout', 'wzoomin', 'wfit', 'wvcd', 'wjson', 'wclear', 'wtog']) this.el[id] = root.querySelector('#' + id)!;
+    for (const id of ['file', 'new', 'open', 'save', 'examples', 'undo', 'redo', 'back', 'step', 'run', 'speed', 'rst', 'poweron', 'cycle', 'vmode', 'dim', 'fit', 'present', 'cmd', 'help', 'pal', 'canvas', 'insp', 'problems', 'bottom', 'wave', 'tests', 'sv', 'wzoomout', 'wzoomin', 'wfit', 'wvcd', 'wjson', 'wclear', 'wtog', 'svdownload', 'svtb', 'svsend']) this.el[id] = root.querySelector('#' + id)!;
     const cv = this.el.canvas;
     this.canvas = new Canvas(cv, this.store, { onEditBlock: id => this.inlineEdit(id), onEditNote: id => this.editNote(id) });
     cv.insertAdjacentHTML('beforeend', `<div class="empty-hint">The canvas is empty.<br>Add a block from the list on the left, or open an example.</div><div class="hint">Drag from a pin to wire · click a 1-bit input to toggle · drag empty space to select · right-drag or Space+drag to pan · Ctrl+wheel to zoom · <kbd>Space</kbd> clocks</div>`);
@@ -122,6 +129,7 @@ export class App {
     (this.el.back as HTMLButtonElement).disabled = sim.cur === 0;
     this.renderWave();
     if (this.tab === 'tests' && what !== 'sim') this.renderTests();
+    if (this.tab === 'sv' && what !== 'sim') void this.renderSV();
     document.title = `${s.dirty ? '• ' : ''}${s.file ?? s.design.name} – RTL Playground`;
   }
 
@@ -167,6 +175,50 @@ export class App {
     });
     el.innerHTML = h;
     el.querySelector<HTMLButtonElement>('#runtests')!.onclick = () => { this.testResults = runAll(this.store.design); this.renderTests(); };
+  }
+
+  // ---------- SystemVerilog (DESIGN.md section 8) ----------
+  svSourceFile(): string { return (this.store.file ?? this.store.design.name).replace(/\.rtlp$/, '') + '.rtlp'; }
+  svText(): string { return emitDesign(this.store.design, { sourceFile: this.svSourceFile() }); }
+  async renderSV(): Promise<void> {
+    let text: string;
+    try { text = this.svText(); } catch (e) { text = `// Cannot generate SystemVerilog for this design:\n// ${(e as Error).message}\n`; }
+    if (!this.svEditor) {
+      // CodeMirror lives in the project chunk (frontend/src/project/editor.ts), so the schematic bundle does not pay for it.
+      const { CodeEditor } = await import('../project/editor');
+      this.svEditor ??= new CodeEditor(this.el.sv, { onChange: () => {}, onSave: () => {} });
+    }
+    this.svEditor.open('design.sv', text, true);
+  }
+  async exportSV(): Promise<void> {
+    let text: string; try { text = this.svText(); } catch (e) { this.toast(`Cannot generate SystemVerilog: ${(e as Error).message}`, true); return; }
+    const name = (this.store.file ?? this.store.design.name).replace(/\.rtlp$/, '') + '.sv';
+    if (this.host.available && this.store.file) { try { await this.host.write(name, text); this.toast(`Saved ${name}`); return; } catch (e) { this.toast(`Save failed: ${(e as Error).message}`, true); } }
+    download(name.replace(/^.*\//, ''), text, 'text/plain');
+  }
+  async exportTestbenches(): Promise<void> {
+    const d = this.store.design; const modules = testableModules(d);
+    if (!modules.length) { this.toast('This design has no tests, so there is no testbench to export.'); return; }
+    for (const key of modules) {
+      let text: string; try { text = emitTestbench(d, key, { sourceFile: this.svSourceFile() }); } catch (e) { this.toast(`Cannot generate tb_${key}.sv: ${(e as Error).message}`, true); continue; }
+      const dir = this.store.file?.includes('/') ? this.store.file.replace(/\/[^/]*$/, '') : '';
+      const base = dir ? `${dir}/tb_${key}.sv` : `tb_${key}.sv`;
+      if (this.host.available && this.store.file) { try { await this.host.write(base, text); this.toast(`Saved ${base}`); continue; } catch (e) { this.toast(`Save failed: ${(e as Error).message}`, true); } }
+      download(`tb_${key}.sv`, text, 'text/plain');
+    }
+  }
+  async sendToProject(): Promise<void> {
+    if (!this.host.available) { this.toast('Send to project needs the local host: start the app with rtl-playground.', true); return; }
+    let text: string; try { text = this.svText(); } catch (e) { this.toast(`Cannot generate SystemVerilog: ${(e as Error).message}`, true); return; }
+    let projects; try { projects = (await this.host.projects()).projects; } catch (e) { this.toast(`Cannot list projects: ${(e as Error).message}`, true); return; }
+    if (!projects.length) { this.toast('No projects found. Switch to the Project view and create one first.', true); return; }
+    const pick = await this.pickList('Send to which project?', projects.map(p => ({ label: p.path || '.', hint: p.name, value: p.path })));
+    if (!pick) return;
+    const defaultName = `${this.store.design.top || this.store.design.name || 'top'}.sv`.replace(/[^\w.-]/g, '_');
+    const fileName = prompt('File name (relative to the project\'s rtl/ folder):', defaultName);
+    if (!fileName) return;
+    const path = (pick.value ? `${pick.value}/` : '') + `rtl/${fileName}`;
+    try { await this.host.write(path, text); this.toast(`Saved ${path}`); } catch (e) { this.toast(`Cannot save ${path}: ${(e as Error).message}`, true); }
   }
 
   // ---------- editing ----------
@@ -332,6 +384,9 @@ export class App {
       { id: 'download', title: 'Download design file', run: () => download((s.file ?? s.design.name).replace(/\.rtlp$/, '') + '.rtlp', serialize(s.design)) },
       { id: 'examples', title: 'Open example…', run: () => this.openExample() },
       { id: 'tests', title: 'Run all tests', run: () => { this.showTab('tests'); this.testResults = runAll(s.design); this.renderTests(); } },
+      { id: 'exportsv', title: 'Export SystemVerilog', run: () => void this.exportSV() },
+      { id: 'exporttb', title: 'Export testbench', run: () => void this.exportTestbenches() },
+      { id: 'sendtoproject', title: 'Send to project…', run: () => void this.sendToProject() },
       { id: 'vcd', title: 'Export waveform as VCD', run: () => download((s.design.name || 'wave') + '.vcd', toVCD(this.waveData()), 'text/plain') },
       { id: 'wavejson', title: 'Copy WaveDrom JSON', run: () => { const j = JSON.stringify(toWaveJSON(this.waveData())); navigator.clipboard?.writeText(j); download((s.design.name || 'wave') + '.json', j); } },
       { id: 'present', title: 'Presentation mode', keys: 'F11', run: () => this.togglePresent() },
@@ -339,7 +394,12 @@ export class App {
       { id: 'help', title: 'Keyboard shortcuts', keys: '?', run: () => this.showHelp() },
     ];
   }
-  showTab(t: 'wave' | 'tests'): void { this.tab = t; for (const b of this.el.bottom.querySelectorAll<HTMLButtonElement>('[data-tab]')) b.classList.toggle('active', b.dataset.tab === t); this.el.wave.classList.toggle('active', t === 'wave'); this.el.tests.classList.toggle('active', t === 'tests'); if (t === 'tests') this.renderTests(); else this.renderWave(); }
+  showTab(t: 'wave' | 'tests' | 'sv'): void {
+    this.tab = t;
+    for (const b of this.el.bottom.querySelectorAll<HTMLButtonElement>('[data-tab]')) b.classList.toggle('active', b.dataset.tab === t);
+    this.el.wave.classList.toggle('active', t === 'wave'); this.el.tests.classList.toggle('active', t === 'tests'); this.el.sv.classList.toggle('active', t === 'sv');
+    if (t === 'tests') this.renderTests(); else if (t === 'sv') void this.renderSV(); else this.renderWave();
+  }
 
   bindToolbar(): void {
     const s = this.store; const e = this.el;
@@ -353,10 +413,13 @@ export class App {
     (e.vmode as HTMLSelectElement).onchange = () => { this.canvas.valueMode = (e.vmode as HTMLSelectElement).value as ValueMode; this.canvas.render(); };
     e.dim.onclick = () => { this.canvas.dimUnchanged = !this.canvas.dimUnchanged; e.dim.classList.toggle('on', this.canvas.dimUnchanged); this.canvas.render(); };
     e.fit.onclick = () => this.canvas.zoomFit(); e.present.onclick = () => this.togglePresent(); e.cmd.onclick = () => this.commandPalette(); e.help.onclick = () => this.showHelp();
-    for (const b of e.bottom.querySelectorAll<HTMLButtonElement>('[data-tab]')) b.onclick = () => this.showTab(b.dataset.tab as 'wave' | 'tests');
+    for (const b of e.bottom.querySelectorAll<HTMLButtonElement>('[data-tab]')) b.onclick = () => this.showTab(b.dataset.tab as 'wave' | 'tests' | 'sv');
     e.wzoomin.onclick = () => this.wave.zoomIn(); e.wzoomout.onclick = () => this.wave.zoomOut(); e.wfit.onclick = () => this.wave.zoomFit();
     e.wvcd.onclick = () => this.commands.find(c => c.id === 'vcd')!.run(); e.wjson.onclick = () => this.commands.find(c => c.id === 'wavejson')!.run();
     e.wclear.onclick = () => { s.sim.clearHistory(); s.emit('sim'); };
+    e.svdownload.onclick = () => this.commands.find(c => c.id === 'exportsv')!.run();
+    e.svtb.onclick = () => this.commands.find(c => c.id === 'exporttb')!.run();
+    e.svsend.onclick = () => this.commands.find(c => c.id === 'sendtoproject')!.run();
     e.wtog.onclick = () => { const c = e.bottom.classList.toggle('collapsed'); e.wtog.textContent = c ? 'Show' : 'Hide'; if (!c) this.renderWave(); };
     window.addEventListener('beforeunload', ev => { if (s.dirty) { ev.preventDefault(); } });
     try { const t = localStorage.getItem('rtlp-theme'); if (t) document.documentElement.dataset.theme = t; } catch { /* ignore */ }

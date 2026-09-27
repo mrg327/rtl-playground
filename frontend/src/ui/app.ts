@@ -114,9 +114,9 @@ export class App {
   async boot(): Promise<void> {
     const ok = await this.host.connect();
     if (ok) { const open = openFromHash(); if (open) await this.openPath(open); this.toast(`Connected to local host · ${this.host.info!.root}`); }
+    else this.toast('No local host found: files will download to your browser instead.');
     let saved: string | null = null; try { saved = localStorage.getItem('rtlp.mode'); } catch { /* ignore */ }
     if (saved === 'project' || /(^|[#&])mode=project/.test(location.hash)) void this.setMode('project');
-    else this.toast('No local host found: files will download to your browser instead.');
   }
 
   // ---------- rendering ----------

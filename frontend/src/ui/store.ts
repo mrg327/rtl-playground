@@ -4,7 +4,7 @@ import { emptyDesign, emptyModule } from '../model/types';
 import { serialize, deserialize } from '../model/serialize';
 import { Simulator } from '../sim/engine';
 import { setActiveDesign } from '../model/library';
-import { flattenModule, type TracedSignal } from '../model/hierarchy';
+import { flattenModule, portNameOf, type TracedSignal } from '../model/hierarchy';
 import { pinKey, parsePin } from '../model/netlist';
 
 export interface Selection { blocks: Set<string>; wires: Set<string>; notes: Set<string> }
@@ -135,9 +135,17 @@ export class Store {
    * this sheet isn't on the simulated tree (`!simActive`). */
   hierPin(localPin: string): string | null {
     if (this.viewPath === null) return null;
-    if (!this.viewPath.length) return localPin;
     const { b, p } = parsePin(localPin);
-    return pinKey({ b: `${this.viewPath.join('/')}/${b}`, p });
+    const prefix = this.viewPath.length ? `${this.viewPath.join('/')}/` : '';
+    // An instance does not survive flattening: its pins became the child's port blocks, spliced in as
+    // buffers (`u1/<port block>`), whose output carries the port's value in either direction.
+    const blk = this.design.modules[this.viewModule]?.blocks.find(x => x.id === b);
+    if (blk?.type === 'instance') {
+      const child = this.design.modules[String(blk.params.module ?? '')];
+      const port = child?.blocks.find(x => (x.type === 'in' || x.type === 'out') && portNameOf(x) === p);
+      return port ? pinKey({ b: `${prefix}${b}/${port.id}`, p: 'y' }) : null;
+    }
+    return prefix ? pinKey({ b: `${prefix}${b}`, p }) : localPin;
   }
   hierBlock(localId: string): string | null {
     if (this.viewPath === null) return null;

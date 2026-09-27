@@ -138,3 +138,17 @@ describe('hierarchy: serialization round-trips instance blocks', () => {
     expect(Object.keys(d2.modules).sort()).toEqual(['full_adder', 'top']);
   });
 });
+
+describe('instance pins on a sheet read the flattened port buffers', () => {
+  it('shows each absdiff output on the top sheet (examples/11)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { Store } = await import('../src/ui/store');
+    const s = new Store(deserialize(readFileSync(new URL('../../examples/11-sad-hierarchy.rtlp', import.meta.url), 'utf8')));
+    const val = (pin: string) => { const k = s.hierPin(pin); const i = k === null ? undefined : s.sim.compiled.pinIndex.get(k); return i === undefined ? undefined : s.sim.values(s.sim.cur)[i]; };
+    // inputs on the example sheet are a0..a3 = 10..13 and b0..b3 = 3, so each |a-b| is 7..10
+    const outs = s.module.blocks.filter(b => b.type === 'instance').map(b => val(`${b.id}.d`));
+    expect(outs).toEqual([7n, 8n, 9n, 10n]);
+    const inst = s.module.blocks.find(b => b.type === 'instance')!;
+    expect(val(`${inst.id}.a`)).toBe(10n);
+  });
+});

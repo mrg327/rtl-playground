@@ -1,0 +1,775 @@
+{
+ "version": 2,
+ "name": "SAD of 4 pixel pairs (module hierarchy)",
+ "top": "top",
+ "options": {
+  "resetStyle": "sync_high",
+  "xUntilReset": false,
+  "clockName": "clk",
+  "resetName": "rst"
+ },
+ "modules": {
+  "top": {
+   "source": "schematic",
+   "ports": [],
+   "blocks": [
+    {
+     "id": "a0",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": 10
+     },
+     "x": 40,
+     "y": 100,
+     "trace": true,
+     "label": "a0"
+    },
+    {
+     "id": "b0",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": 3
+     },
+     "x": 40,
+     "y": 140,
+     "trace": true,
+     "label": "b0"
+    },
+    {
+     "id": "u0",
+     "type": "instance",
+     "params": {
+      "module": "absdiff"
+     },
+     "x": 220,
+     "y": 100,
+     "trace": false,
+     "label": "absdiff 0"
+    },
+    {
+     "id": "a1",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": 11
+     },
+     "x": 40,
+     "y": 190,
+     "trace": true,
+     "label": "a1"
+    },
+    {
+     "id": "b1",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": 3
+     },
+     "x": 40,
+     "y": 230,
+     "trace": true,
+     "label": "b1"
+    },
+    {
+     "id": "u1",
+     "type": "instance",
+     "params": {
+      "module": "absdiff"
+     },
+     "x": 220,
+     "y": 190,
+     "trace": false,
+     "label": "absdiff 1"
+    },
+    {
+     "id": "a2",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": 12
+     },
+     "x": 40,
+     "y": 280,
+     "trace": true,
+     "label": "a2"
+    },
+    {
+     "id": "b2",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": 3
+     },
+     "x": 40,
+     "y": 320,
+     "trace": true,
+     "label": "b2"
+    },
+    {
+     "id": "u2",
+     "type": "instance",
+     "params": {
+      "module": "absdiff"
+     },
+     "x": 220,
+     "y": 280,
+     "trace": false,
+     "label": "absdiff 2"
+    },
+    {
+     "id": "a3",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": 13
+     },
+     "x": 40,
+     "y": 370,
+     "trace": true,
+     "label": "a3"
+    },
+    {
+     "id": "b3",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": 3
+     },
+     "x": 40,
+     "y": 410,
+     "trace": true,
+     "label": "b3"
+    },
+    {
+     "id": "u3",
+     "type": "instance",
+     "params": {
+      "module": "absdiff"
+     },
+     "x": 220,
+     "y": 370,
+     "trace": false,
+     "label": "absdiff 3"
+    },
+    {
+     "id": "e0",
+     "type": "ext",
+     "params": {
+      "inw": 8,
+      "outw": 9,
+      "signed": false
+     },
+     "x": 400,
+     "y": 100,
+     "trace": false
+    },
+    {
+     "id": "e1",
+     "type": "ext",
+     "params": {
+      "inw": 8,
+      "outw": 9,
+      "signed": false
+     },
+     "x": 400,
+     "y": 190,
+     "trace": false
+    },
+    {
+     "id": "e2",
+     "type": "ext",
+     "params": {
+      "inw": 8,
+      "outw": 9,
+      "signed": false
+     },
+     "x": 400,
+     "y": 280,
+     "trace": false
+    },
+    {
+     "id": "e3",
+     "type": "ext",
+     "params": {
+      "inw": 8,
+      "outw": 9,
+      "signed": false
+     },
+     "x": 400,
+     "y": 370,
+     "trace": false
+    },
+    {
+     "id": "add1",
+     "type": "add",
+     "params": {
+      "width": 9,
+      "cin": false,
+      "cout": false
+     },
+     "x": 520,
+     "y": 120,
+     "trace": false
+    },
+    {
+     "id": "add2",
+     "type": "add",
+     "params": {
+      "width": 9,
+      "cin": false,
+      "cout": false
+     },
+     "x": 520,
+     "y": 300,
+     "trace": false
+    },
+    {
+     "id": "ext01",
+     "type": "ext",
+     "params": {
+      "inw": 9,
+      "outw": 10,
+      "signed": false
+     },
+     "x": 640,
+     "y": 120,
+     "trace": false
+    },
+    {
+     "id": "ext23",
+     "type": "ext",
+     "params": {
+      "inw": 9,
+      "outw": 10,
+      "signed": false
+     },
+     "x": 640,
+     "y": 300,
+     "trace": false
+    },
+    {
+     "id": "add3",
+     "type": "add",
+     "params": {
+      "width": 10,
+      "cin": false,
+      "cout": false
+     },
+     "x": 760,
+     "y": 200,
+     "trace": false
+    },
+    {
+     "id": "sad",
+     "type": "out",
+     "params": {
+      "width": 10
+     },
+     "x": 880,
+     "y": 220,
+     "trace": true,
+     "label": "sad"
+    }
+   ],
+   "wires": [
+    {
+     "id": "w9",
+     "from": {
+      "b": "a0",
+      "p": "y"
+     },
+     "to": {
+      "b": "u0",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w10",
+     "from": {
+      "b": "b0",
+      "p": "y"
+     },
+     "to": {
+      "b": "u0",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w11",
+     "from": {
+      "b": "a1",
+      "p": "y"
+     },
+     "to": {
+      "b": "u1",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w12",
+     "from": {
+      "b": "b1",
+      "p": "y"
+     },
+     "to": {
+      "b": "u1",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w13",
+     "from": {
+      "b": "a2",
+      "p": "y"
+     },
+     "to": {
+      "b": "u2",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w14",
+     "from": {
+      "b": "b2",
+      "p": "y"
+     },
+     "to": {
+      "b": "u2",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w15",
+     "from": {
+      "b": "a3",
+      "p": "y"
+     },
+     "to": {
+      "b": "u3",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w16",
+     "from": {
+      "b": "b3",
+      "p": "y"
+     },
+     "to": {
+      "b": "u3",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w17",
+     "from": {
+      "b": "u0",
+      "p": "d"
+     },
+     "to": {
+      "b": "e0",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w18",
+     "from": {
+      "b": "u1",
+      "p": "d"
+     },
+     "to": {
+      "b": "e1",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w19",
+     "from": {
+      "b": "u2",
+      "p": "d"
+     },
+     "to": {
+      "b": "e2",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w20",
+     "from": {
+      "b": "u3",
+      "p": "d"
+     },
+     "to": {
+      "b": "e3",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w21",
+     "from": {
+      "b": "e0",
+      "p": "y"
+     },
+     "to": {
+      "b": "add1",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w22",
+     "from": {
+      "b": "e1",
+      "p": "y"
+     },
+     "to": {
+      "b": "add1",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w23",
+     "from": {
+      "b": "e2",
+      "p": "y"
+     },
+     "to": {
+      "b": "add2",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w24",
+     "from": {
+      "b": "e3",
+      "p": "y"
+     },
+     "to": {
+      "b": "add2",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w25",
+     "from": {
+      "b": "add1",
+      "p": "s"
+     },
+     "to": {
+      "b": "ext01",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w26",
+     "from": {
+      "b": "add2",
+      "p": "s"
+     },
+     "to": {
+      "b": "ext23",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w27",
+     "from": {
+      "b": "ext01",
+      "p": "y"
+     },
+     "to": {
+      "b": "add3",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w28",
+     "from": {
+      "b": "ext23",
+      "p": "y"
+     },
+     "to": {
+      "b": "add3",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w29",
+     "from": {
+      "b": "add3",
+      "p": "s"
+     },
+     "to": {
+      "b": "sad",
+      "p": "a"
+     }
+    }
+   ],
+   "notes": [
+    {
+     "id": "note1",
+     "x": 40,
+     "y": 20,
+     "w": 640,
+     "h": 50,
+     "text": "Four absdiff instances compute |a-b| for four pixel pairs; an adder tree with growing width sums them into a 10-bit SAD. This is the reduction step of the course project's block-matching motion estimator, at 4-pixel scale."
+    }
+   ],
+   "locked": []
+  },
+  "absdiff": {
+   "source": "schematic",
+   "ports": [],
+   "blocks": [
+    {
+     "id": "a",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": 0
+     },
+     "x": 40,
+     "y": 40,
+     "trace": true,
+     "label": "a"
+    },
+    {
+     "id": "b",
+     "type": "in",
+     "params": {
+      "width": 8,
+      "value": 0
+     },
+     "x": 40,
+     "y": 140,
+     "trace": true,
+     "label": "b"
+    },
+    {
+     "id": "sub1",
+     "type": "sub",
+     "params": {
+      "width": 8
+     },
+     "x": 220,
+     "y": 60,
+     "trace": false
+    },
+    {
+     "id": "zero",
+     "type": "const",
+     "params": {
+      "width": 8,
+      "value": 0
+     },
+     "x": 220,
+     "y": 220,
+     "trace": false
+    },
+    {
+     "id": "sub2",
+     "type": "sub",
+     "params": {
+      "width": 8
+     },
+     "x": 380,
+     "y": 200,
+     "trace": false
+    },
+    {
+     "id": "mux1",
+     "type": "mux",
+     "params": {
+      "n": 2,
+      "width": 8
+     },
+     "x": 540,
+     "y": 100,
+     "trace": false
+    },
+    {
+     "id": "d",
+     "type": "out",
+     "params": {
+      "width": 8
+     },
+     "x": 680,
+     "y": 107,
+     "trace": true,
+     "label": "d"
+    }
+   ],
+   "wires": [
+    {
+     "id": "w1",
+     "from": {
+      "b": "a",
+      "p": "y"
+     },
+     "to": {
+      "b": "sub1",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w2",
+     "from": {
+      "b": "b",
+      "p": "y"
+     },
+     "to": {
+      "b": "sub1",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w3",
+     "from": {
+      "b": "zero",
+      "p": "y"
+     },
+     "to": {
+      "b": "sub2",
+      "p": "a"
+     }
+    },
+    {
+     "id": "w4",
+     "from": {
+      "b": "sub1",
+      "p": "d"
+     },
+     "to": {
+      "b": "sub2",
+      "p": "b"
+     }
+    },
+    {
+     "id": "w5",
+     "from": {
+      "b": "sub1",
+      "p": "d"
+     },
+     "to": {
+      "b": "mux1",
+      "p": "i0"
+     }
+    },
+    {
+     "id": "w6",
+     "from": {
+      "b": "sub2",
+      "p": "d"
+     },
+     "to": {
+      "b": "mux1",
+      "p": "i1"
+     }
+    },
+    {
+     "id": "w7",
+     "from": {
+      "b": "sub1",
+      "p": "bo"
+     },
+     "to": {
+      "b": "mux1",
+      "p": "s"
+     }
+    },
+    {
+     "id": "w8",
+     "from": {
+      "b": "mux1",
+      "p": "y"
+     },
+     "to": {
+      "b": "d",
+      "p": "a"
+     }
+    }
+   ],
+   "notes": [
+    {
+     "id": "note1",
+     "x": 40,
+     "y": 20,
+     "w": 620,
+     "h": 30,
+     "text": "d = |a - b|: subtract, then negate through a second subtractor and pick the correct one on the borrow flag."
+    }
+   ],
+   "locked": []
+  }
+ },
+ "tests": [
+  {
+   "name": "SAD of four pairs",
+   "module": "top",
+   "columns": [
+    "a0",
+    "b0",
+    "a1",
+    "b1",
+    "a2",
+    "b2",
+    "a3",
+    "b3",
+    "sad"
+   ],
+   "rows": [
+    [
+     "10",
+     "3",
+     "11",
+     "3",
+     "12",
+     "3",
+     "13",
+     "3",
+     "34"
+    ],
+    [
+     "0",
+     "255",
+     "0",
+     "255",
+     "0",
+     "255",
+     "0",
+     "255",
+     "10'd1020"
+    ],
+    [
+     "5",
+     "5",
+     "5",
+     "5",
+     "5",
+     "5",
+     "5",
+     "5",
+     "0"
+    ],
+    [
+     "200",
+     "50",
+     "10",
+     "10",
+     "0",
+     "255",
+     "3",
+     "3",
+     "10'd405"
+    ]
+   ]
+  }
+ ],
+ "views": {
+  "wave": {
+   "signals": [],
+   "radix": {}
+  }
+ }
+}

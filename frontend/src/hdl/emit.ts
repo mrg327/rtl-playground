@@ -11,7 +11,7 @@ import { toBig, parseList, mask } from '../model/values';
 import { findRecursiveModules } from '../model/hierarchy';
 
 // Kept in step with pyproject.toml by hand; only used in the emitted header comment.
-export const TOOL_VERSION = '0.1.0a2';
+export const TOOL_VERSION = '0.2.0a1';
 
 // ---------- identifiers ----------
 // IEEE 1800-2017 Annex B reserved words (the practically-relevant subset: a student's block label or id could

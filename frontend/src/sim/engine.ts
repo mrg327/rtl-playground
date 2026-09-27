@@ -24,9 +24,9 @@ export interface Frame {
   rst: boolean;
 }
 
-export function compile(m: Module): Compiled {
+export function compile(m: Module, extraProblems: Problem[] = []): Compiled {
   const netlist = buildNetlist(m);
-  const problems = [...netlist.problems];
+  const problems = [...extraProblems, ...netlist.problems];
   const pinKeys: string[] = [];
   const pinIndex = new Map<string, number>();
   for (const b of m.blocks) for (const p of netlist.ports.get(b.id)!) { pinIndex.set(`${b.id}.${p.name}`, pinKeys.length); pinKeys.push(`${b.id}.${p.name}`); }
@@ -84,8 +84,11 @@ export class Simulator {
   cur = 0;
   maxFrames = 20000;
   private cache = new Map<number, bigint[]>();
+  /** Problems that don't come from this module's own netlist (e.g. hierarchy-wide recursion), carried
+   * through `recompile` so a design-wide check survives a per-cycle rebuild. */
+  private extraProblems: Problem[];
 
-  constructor(m: Module) { this.compiled = compile(m); this.powerOn(); }
+  constructor(m: Module, extraProblems: Problem[] = []) { this.extraProblems = extraProblems; this.compiled = compile(m, extraProblems); this.powerOn(); }
 
   get module(): Module { return this.compiled.module; }
   get live(): boolean { return this.cur === this.frames.length - 1; }
@@ -96,8 +99,9 @@ export class Simulator {
   set rst(v: boolean) { this.frames[this.frames.length - 1].rst = v; this.cache.delete(this.frames.length - 1); }
 
   /** Rebuild after the module changed. Keeps history; new blocks get fresh state. */
-  recompile(m: Module): void {
-    this.compiled = compile(m);
+  recompile(m: Module, extraProblems: Problem[] = this.extraProblems): void {
+    this.extraProblems = extraProblems;
+    this.compiled = compile(m, extraProblems);
     this.cache.clear();
     for (const f of this.frames) for (const b of m.blocks) if (!f.states.has(b.id)) f.states.set(b.id, initState(b));
   }

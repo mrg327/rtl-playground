@@ -2,7 +2,8 @@
 import type { Design, Test, Module } from '../model/types';
 import { Simulator } from './engine';
 import { toBig, fmt } from '../model/values';
-import { defOf } from '../model/library';
+import { defOf, setActiveDesign } from '../model/library';
+import { flattenModule } from '../model/hierarchy';
 
 export interface RowResult { index: number; cycle: number; ok: boolean; skipped: boolean; actual: Record<string, string>; expected: Record<string, string>; inputs: Record<string, string> }
 export interface TestResult { name: string; passed: boolean; rows: RowResult[]; error?: string }
@@ -11,11 +12,21 @@ export interface TestResult { name: string; passed: boolean; rows: RowResult[]; 
 function findBlock(m: Module, col: string) { return m.blocks.find(b => b.id === col) ?? m.blocks.find(b => b.label === col); }
 
 export function runTest(design: Design, test: Test, moduleOverride?: Module): TestResult {
-  const src = moduleOverride ?? design.modules[test.module];
-  if (!src) return { name: test.name, passed: false, rows: [], error: `Module ${test.module} not found` };
-  // Work on a copy so the editor's simulator is untouched.
-  const m: Module = JSON.parse(JSON.stringify(src));
-  const sim = new Simulator(m);
+  let m: Module;
+  let problems: import('../model/netlist').Problem[] = [];
+  if (moduleOverride) {
+    // Work on a copy so the editor's simulator is untouched.
+    m = JSON.parse(JSON.stringify(moduleOverride));
+  } else {
+    if (!design.modules[test.module]) return { name: test.name, passed: false, rows: [], error: `Module ${test.module} not found` };
+    // Flatten as if `test.module` were the design's top (DESIGN.md section 6): this is what lets a test
+    // target either the whole design or a submodule directly, with hierarchical columns (`u1/reg1`) for
+    // anything the test wants to check inside an instance.
+    setActiveDesign(design);
+    const flat = flattenModule(design, test.module);
+    m = flat.module; problems = flat.problems;
+  }
+  const sim = new Simulator(m, problems);
   const cols = test.columns.map(c => { const b = findBlock(m, c); return b ? { name: c, block: b, isIn: b.type === 'in', width: Number(b.params.width ?? 1) } : null; });
   const missing = test.columns.filter((_, i) => !cols[i]);
   if (missing.length) return { name: test.name, passed: false, rows: [], error: `Unknown columns: ${missing.join(', ')}` };
